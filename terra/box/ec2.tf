@@ -25,6 +25,7 @@ resource "aws_instance" "main" {
   key_name               = var.key_name
   subnet_id              = aws_subnet.public.id
   vpc_security_group_ids = [aws_security_group.main.id]
+  iam_instance_profile = "EC2-ECR-Read-Role"
 
   root_block_device {
     volume_size = 40
@@ -39,12 +40,16 @@ resource "aws_instance" "main" {
     sysctl -w vm.max_map_count=262144
     echo "vm.max_map_count=262144" >> /etc/sysctl.conf
 
-    # Install Docker and Docker Compose
+    # Install Docker, Docker Compose, and AWS CLI
     apt-get update -y
-    apt-get install -y docker.io docker-compose
+    apt-get install -y docker.io docker-compose awscli
     systemctl start docker
     systemctl enable docker
     usermod -aG docker ubuntu
+
+    # Login to ECR
+    ECR_REGISTRY=$(echo "${var.docker_image}" | cut -d'/' -f1)
+    aws ecr get-login-password --region ${var.aws_region} | docker login --username AWS --password-stdin $ECR_REGISTRY
 
     mkdir -p /opt/verg
     cd /opt/verg

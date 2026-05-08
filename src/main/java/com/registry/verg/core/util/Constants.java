@@ -73,12 +73,6 @@ public class Constants{
     public static final String LEADS_ID_RQST = "leadsId";
     public static final String LEADS_INDEX_NAME = "leads_index";
 
-    
-    // Crop Specific Constants
-    public static final String CROP_VALIDATION_FILE_JSON = "/payloadValidation/cropPayloadValidation.json";
-    public static final String CROP_ID_RQST = "cropId";
-    public static final String CROP_INDEX_NAME = "crop_index";
-
         private Constants() {
     }
 }
