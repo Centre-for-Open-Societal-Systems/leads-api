@@ -1,0 +1,23 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+        "leadsId": {
+            "type": "string",
+            "prefix": "leads-",
+            "key": "Primary",
+            "description": "leads Id prefix"
+        },
+        "location": {
+            "type": "string"
+        },
+        "phNumber": {
+            "type": "string",
+            "description": "Phone number of the lead"
+        }
+    },
+    "required": [
+        "location",
+        "phNumber"
+    ]
+}

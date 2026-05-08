@@ -1,0 +1,14 @@
+{
+    "leadsId": {
+        "type": "keyword"
+    },
+    "location": {
+        "type": "keyword"
+    },
+    "phNumber": {
+        "type": "text"
+    },
+    "status": {
+        "type": "keyword"
+    }
+}
