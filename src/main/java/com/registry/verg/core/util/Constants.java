@@ -73,12 +73,6 @@ public class Constants{
     public static final String LEADS_ID_RQST = "leadsId";
     public static final String LEADS_INDEX_NAME = "leads_index";
 
-    
-    // Livestock Specific Constants
-    public static final String LIVESTOCK_VALIDATION_FILE_JSON = "/payloadValidation/livestockPayloadValidation.json";
-    public static final String LIVESTOCK_ID_RQST = "livestockId";
-    public static final String LIVESTOCK_INDEX_NAME = "livestock_index";
-
         private Constants() {
     }
 }

@@ -1,5 +1,0 @@
-{
-    "livestockId": {
-        "type": "keyword"
-    }
-}
