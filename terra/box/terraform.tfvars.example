@@ -1,7 +1,7 @@
 # ──────────────────────────────────────────────
 # Project
 # ──────────────────────────────────────────────
-project_prefix = "verg"
+project_prefix = "leads"
 
 # ──────────────────────────────────────────────
 # Region
@@ -30,7 +30,7 @@ docker_image = "<your_ecr_image_uri>"
 # Database Credentials
 # ──────────────────────────────────────────────
 db_name     = "<your_db_name>"
-db_username = "verg_user"
+db_username = "postgres_user"
 db_password = "<your_password>"
 es_username = "elastic"
 es_password = "<your_password>"

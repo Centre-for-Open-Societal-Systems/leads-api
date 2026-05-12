@@ -51,15 +51,15 @@ resource "aws_instance" "main" {
     ECR_REGISTRY=$(echo "${var.docker_image}" | cut -d'/' -f1)
     aws ecr get-login-password --region ${var.aws_region} | docker login --username AWS --password-stdin $ECR_REGISTRY
 
-    mkdir -p /opt/verg
-    cd /opt/verg
+    mkdir -p /opt/${var.project_prefix}
+    cd /opt/${var.project_prefix}
 
     # Create servers.json for pgAdmin
     cat << 'JSON_EOF' > servers.json
     {
       "Servers": {
         "1": {
-          "Name": "Verg DB",
+          "Name": "${var.project_prefix} DB",
           "Group": "Servers",
           "Host": "postgres",
           "Port": 5432,

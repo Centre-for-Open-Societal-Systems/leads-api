@@ -3,8 +3,8 @@
 # ──────────────────────────────────────────────
 resource "aws_security_group" "main" {
   name        = "${var.project_prefix}-main-sg"
-  description = "Security group for the Verg consolidated server"
-  vpc_id      = aws_vpc.verg.id
+  description = "Security group for the consolidated server"
+  vpc_id      = aws_vpc.leads.id
 
   # SSH
   ingress {

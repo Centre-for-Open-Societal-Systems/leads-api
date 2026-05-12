@@ -7,7 +7,7 @@ on:
 
 env:
   ECR_REGISTRY: 379220350808.dkr.ecr.us-west-2.amazonaws.com
-  ECR_REPOSITORY: verg-leads
+  ECR_REPOSITORY: leads-a2c
 
 jobs:
   build-and-push:

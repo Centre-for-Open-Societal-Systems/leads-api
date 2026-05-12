@@ -3,11 +3,11 @@ version: '3.8'
 services:
   postgres:
     image: postgres:16
-    container_name: verg-postgres
+    container_name: leads-postgres
     environment:
-      POSTGRES_DB: verg_db
-      POSTGRES_USER: verg_user
-      POSTGRES_PASSWORD: verg_password
+      POSTGRES_DB: leads_db
+      POSTGRES_USER: leads_user
+      POSTGRES_PASSWORD: leads_password
     ports:
       - "5433:5432"
     volumes:
@@ -15,7 +15,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: verg-redis
+    container_name: leads-redis
     ports:
       - "6379:6379"
     volumes:
@@ -23,7 +23,7 @@ services:
 
   elasticsearch:
     image: elasticsearch:8.13.0
-    container_name: verg-elasticsearch
+    container_name: leads-elasticsearch
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
@@ -36,7 +36,7 @@ services:
 
   pgadmin:
     image: dpage/pgadmin4
-    container_name: verg-pgadmin
+    container_name: leads-pgadmin
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@admin.com
       PGADMIN_DEFAULT_PASSWORD: admin
@@ -50,7 +50,7 @@ services:
 
   redis-commander:
     image: rediscommander/redis-commander:latest
-    container_name: verg-redis-commander
+    container_name: leads-redis-commander
     environment:
       - REDIS_HOSTS=local:redis:6379
     ports:
@@ -60,7 +60,7 @@ services:
 
   kibana:
     image: kibana:8.13.0
-    container_name: verg-kibana
+    container_name: leads-kibana
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
     ports:

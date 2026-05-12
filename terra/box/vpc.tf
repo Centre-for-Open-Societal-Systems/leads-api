@@ -1,7 +1,7 @@
 # ──────────────────────────────────────────────
 # VPC
 # ──────────────────────────────────────────────
-resource "aws_vpc" "verg" {
+resource "aws_vpc" "leads" {
   cidr_block           = var.vpc_cidr
   enable_dns_support   = true
   enable_dns_hostnames = true
@@ -15,7 +15,7 @@ resource "aws_vpc" "verg" {
 # Public Subnets
 # ──────────────────────────────────────────────
 resource "aws_subnet" "public" {
-  vpc_id                  = aws_vpc.verg.id
+  vpc_id                  = aws_vpc.leads.id
   cidr_block              = var.public_subnet_cidr
   availability_zone       = var.availability_zone
   map_public_ip_on_launch = true
@@ -28,8 +28,8 @@ resource "aws_subnet" "public" {
 # ──────────────────────────────────────────────
 # Internet Gateway
 # ──────────────────────────────────────────────
-resource "aws_internet_gateway" "verg" {
-  vpc_id = aws_vpc.verg.id
+resource "aws_internet_gateway" "leads" {
+  vpc_id = aws_vpc.leads.id
 
   tags = {
     Name = "${var.project_prefix}-igw"
@@ -40,11 +40,11 @@ resource "aws_internet_gateway" "verg" {
 # Route Table
 # ──────────────────────────────────────────────
 resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.verg.id
+  vpc_id = aws_vpc.leads.id
 
   route {
     cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.verg.id
+    gateway_id = aws_internet_gateway.leads.id
   }
 
   tags = {

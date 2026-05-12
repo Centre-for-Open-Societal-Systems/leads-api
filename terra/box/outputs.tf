@@ -2,12 +2,12 @@
 # Application
 # ──────────────────────────────────────────────
 output "main_public_ip" {
-  description = "Public IP of the Verg consolidated server"
+  description = "Public IP of the consolidated server"
   value       = aws_instance.main.public_ip
 }
 
 output "app_url" {
-  description = "URL to access the Verg application"
+  description = "URL to access the application"
   value       = "http://${aws_instance.main.public_ip}:8080"
 }
 

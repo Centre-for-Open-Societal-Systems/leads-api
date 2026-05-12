@@ -1,12 +1,12 @@
 {
   "Servers": {
     "1": {
-      "Name": "Verg Local DB",
+      "Name": "leads Local DB",
       "Group": "Servers",
       "Host": "postgres",
       "Port": 5432,
-      "MaintenanceDB": "verg_db",
-      "Username": "verg_user",
+      "MaintenanceDB": "leads_db",
+      "Username": "leads_user",
       "SSLMode": "prefer"
     }
   }

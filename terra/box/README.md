@@ -1,8 +1,8 @@
-# Verg AWS Infrastructure Deployment
+# leads AWS Infrastructure Deployment
 
-This directory contains Terraform scripts to deploy a consolidated, single-instance AWS infrastructure for the Verg application. 
+This directory contains Terraform scripts to deploy a consolidated, single-instance AWS infrastructure for the leads application. 
 
-It provisions a single EC2 instance within a custom VPC and uses an automated startup script (`user_data`) to set up a Docker Compose stack containing the Verg application and its required data stores.
+It provisions a single EC2 instance within a custom VPC and uses an automated startup script (`user_data`) to set up a Docker Compose stack containing the leads application and its required data stores.
 
 ## Architecture
 
@@ -17,7 +17,7 @@ The EC2 instance automatically starts the following services using Docker Compos
 *   **PostgreSQL 16**: Primary relational database.
 *   **Redis 7**: In-memory data structure store for caching.
 *   **Elasticsearch 8.13.0**: Search and analytics engine.
-*   **Verg Application**: The core Spring Boot application, pulled directly from your Amazon ECR repository.
+*   **leads Application**: The core Spring Boot application, pulled directly from your Amazon ECR repository.
 *   **pgAdmin**: Web-based administration tool for PostgreSQL.
 *   **Redis Commander**: Web management tool for Redis.
 *   **Kibana**: Data visualization dashboard for Elasticsearch.
@@ -27,7 +27,7 @@ The EC2 instance automatically starts the following services using Docker Compos
 1.  **Terraform**: Installed on your local machine.
 2.  **AWS CLI**: Installed and configured with appropriate access credentials.
 3.  **AWS Key Pair**: An existing EC2 Key Pair in your AWS account for SSH access.
-4.  **Amazon ECR Repository**: A repository containing the built Verg application Docker image.
+4.  **Amazon ECR Repository**: A repository containing the built leads application Docker image.
 5.  **IAM Role**: An IAM role named `EC2-ECR-Read-Role` must exist in your AWS account with permissions to read from ECR (e.g., the `AmazonEC2ContainerRegistryReadOnly` managed policy).
 
 ## Usage
@@ -63,7 +63,7 @@ The EC2 instance automatically starts the following services using Docker Compos
 After a successful `terraform apply`, Terraform will display several useful outputs in the terminal:
 
 *   **`main_public_ip`**: The public IP address of the newly created EC2 instance.
-*   **`app_url`**: The URL to access the Verg application API (`http://<IP>:8080`).
+*   **`app_url`**: The URL to access the leads application API (`http://<IP>:8080`).
 *   **`ssh_main`**: The command to SSH into the instance (note: you may need to replace the placeholder `batman.pem` with your actual private key file name).
 
 ### Administrative Interfaces

@@ -4,13 +4,23 @@ import json
 import argparse
 from pathlib import Path
 import pyfiglet
+import sys
+
+
+__version__ = "1.0.0"
+
+QUIET = False
+
+def log(msg: str):
+    if not QUIET:
+        print(msg)
 
 def to_pascal_case(name: str) -> str:
-    """vergsample -> Vergsample | my-service -> MyService"""
+    """my-service -> MyService"""
     return ''.join(word.capitalize() for word in re.split(r'[-_\s]', name))
 
 def to_camel_case(name: str) -> str:
-    """vergsample -> vergsample | my-service -> myService"""
+    """my-service -> myService"""
     pascal = to_pascal_case(name)
     return pascal[0].lower() + pascal[1:]
 
@@ -23,7 +33,7 @@ def to_upper(name: str) -> str:
     return re.sub(r'[-\s]', '_', name).upper()
 
 
-class CreateRegistry:
+class CreateCatalogue:
 
     def __init__(self, service_name: str):
         self.service_name  = service_name
@@ -35,7 +45,7 @@ class CreateRegistry:
         # Base paths
         base = os.getcwd()
         self.resource_path  = os.path.join(base, "src", "main", "resources")
-        self.registry_path  = os.path.join(base, "src", "main", "java", "com", "registry", "verg")
+        self.catalogue_path  = os.path.join(base, "src", "main", "java", "com", "registry", "verg")
         self.util_path      = os.path.join(base, "src", "main", "java", "com", "registry", "verg", "core", "util")
 
         # Replacements map — used by all template renders
@@ -57,39 +67,39 @@ class CreateRegistry:
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         with open(output_path, 'w') as f:
             f.write(content)
-        print(f"Generated : {output_path}")
+        log(f"Generated : {output_path}")
 
     # ------------------------------------------------------------------ #
     #  Java File Generators                                                #
     # ------------------------------------------------------------------ #
     def generate_controller(self):
         self._render_template(
-            template_path="registry_template/controller/SampleController.java.template",
-            output_path=os.path.join(self.registry_path, self.lower, "controller", f"{self.pascal}Controller.java")
+            template_path="catalogue_template/controller/SampleController.java.template",
+            output_path=os.path.join(self.catalogue_path, self.lower, "controller", f"{self.pascal}Controller.java")
         )
 
     def generate_entity(self):
         self._render_template(
-            template_path="registry_template/entity/SampleEntity.java.template",
-            output_path=os.path.join(self.registry_path, self.lower, "entity", f"{self.pascal}Entity.java")
+            template_path="catalogue_template/entity/SampleEntity.java.template",
+            output_path=os.path.join(self.catalogue_path, self.lower, "entity", f"{self.pascal}Entity.java")
         )
 
     def generate_repository(self):
         self._render_template(
-            template_path="registry_template/repository/SampleRepository.java.template",
-            output_path=os.path.join(self.registry_path, self.lower, "repository", f"{self.pascal}Repository.java")
+            template_path="catalogue_template/repository/SampleRepository.java.template",
+            output_path=os.path.join(self.catalogue_path, self.lower, "repository", f"{self.pascal}Repository.java")
         )
 
     def generate_service(self):
         self._render_template(
-            template_path="registry_template/service/SampleService.java.template",
-            output_path=os.path.join(self.registry_path, self.lower, "service", f"{self.pascal}Service.java")
+            template_path="catalogue_template/service/SampleService.java.template",
+            output_path=os.path.join(self.catalogue_path, self.lower, "service", f"{self.pascal}Service.java")
         )
 
     def generate_service_impl(self):
         self._render_template(
-            template_path="registry_template/service/impl/SampleServiceImpl.java.template",
-            output_path=os.path.join(self.registry_path, self.lower, "service", "impl", f"{self.pascal}ServiceImpl.java")
+            template_path="catalogue_template/service/impl/SampleServiceImpl.java.template",
+            output_path=os.path.join(self.catalogue_path, self.lower, "service", "impl", f"{self.pascal}ServiceImpl.java")
         )
 
     # ------------------------------------------------------------------ #
@@ -98,7 +108,7 @@ class CreateRegistry:
     def generate_payload_validation_json(self):
         output_path = os.path.join(self.resource_path, "payloadValidation", f"{self.camel}PayloadValidation.json")
         if Path(output_path).is_file():
-            print(f"Skipping : {output_path} already exists.")
+            log(f"Skipping : {output_path} already exists.")
             return
         payload_schema = {
             "$schema": "http://json-schema.org/draft-07/schema#",
@@ -116,12 +126,12 @@ class CreateRegistry:
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         with open(output_path, "w") as f:
             json.dump(payload_schema, f, indent=4)
-        print(f"Generated : {output_path}")
+        log(f"Generated : {output_path}")
 
     def generate_es_mapping_json(self):
         output_path = os.path.join(self.resource_path, "EsFieldsmapping", f"es{self.pascal}RequiredFields.json")
         if Path(output_path).is_file():
-            print(f"Skipping : {output_path} already exists.")
+            log(f"Skipping : {output_path} already exists.")
             return
         es_required_fields = {
             f"{self.camel}Id": {"type": "keyword"}
@@ -129,7 +139,7 @@ class CreateRegistry:
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         with open(output_path, "w") as f:
             json.dump(es_required_fields, f, indent=4)
-        print(f"Generated : {output_path}")
+        log(f"Generated : {output_path}")
 
     # ------------------------------------------------------------------ #
     #  File Editors                                                        #
@@ -139,7 +149,7 @@ class CreateRegistry:
         with open(constants_path, "r") as f:
             content = f.read()
         if f"{self.upper}_VALIDATION_FILE_JSON" in content:
-            print(f"Skipping : Constants for '{self.camel}' already exist.")
+            log(f"Skipping : Constants for '{self.camel}' already exist.")
             return
         insertion_point = "    private Constants() {"
         if insertion_point not in content:
@@ -155,7 +165,7 @@ class CreateRegistry:
         updated_content = content.replace(insertion_point, new_constants + insertion_point)
         with open(constants_path, "w") as f:
             f.write(updated_content)
-        print(f"Updated   : {constants_path}")
+        log(f"Updated   : {constants_path}")
 
     def append_application_properties(self):
         properties_path = os.path.join(self.resource_path, "application.properties")
@@ -163,19 +173,19 @@ class CreateRegistry:
             content = f.read()
         property_key = f"elastic.required.field.{self.camel}.json.path"
         if property_key in content:
-            print(f"Skipping : '{property_key}' already exists.")
+            log(f"Skipping : '{property_key}' already exists.")
             return
         updated_content = content.rstrip("\n") + f"\n{property_key}=/EsFieldsmapping/es{self.pascal}RequiredFields.json\n"
         with open(properties_path, "w") as f:
             f.write(updated_content)
-        print(f"Updated   : {properties_path}")
+        log(f"Updated   : {properties_path}")
 
     def append_verg_properties(self):
         verg_path = os.path.join(self.util_path, "VergProperties.java")
         with open(verg_path, "r") as f:
             content = f.read()
         if f"elastic{self.pascal}JsonPath" in content:
-            print(f"Skipping : 'elastic{self.pascal}JsonPath' already exists.")
+            log(f"Skipping : 'elastic{self.pascal}JsonPath' already exists.")
             return
         new_field = f"""
         @Value("${{elastic.required.field.{self.lower}.json.path}}")
@@ -185,13 +195,13 @@ class CreateRegistry:
         updated_content  = content[:last_brace_index] + new_field + content[last_brace_index:]
         with open(verg_path, "w") as f:
             f.write(updated_content)
-        print(f"Updated   : {verg_path}")
+        log(f"Updated   : {verg_path}")
 
     # ------------------------------------------------------------------ #
     #  Master Runner                                                       #
     # ------------------------------------------------------------------ #
     def generate_all(self):
-        service_dir = os.path.join(self.registry_path, self.lower)
+        service_dir = os.path.join(self.catalogue_path, self.lower)
         if not Path(service_dir).is_dir():
             self.generate_controller()
             self.generate_entity()
@@ -199,7 +209,7 @@ class CreateRegistry:
             self.generate_service()
             self.generate_service_impl()
         else:
-            print(f"Skipping Java files: '{self.lower}' directory already exists.")
+            log(f"Skipping Java files: '{self.lower}' directory already exists.")
 
         self.generate_payload_validation_json()
         self.generate_es_mapping_json()
@@ -208,7 +218,7 @@ class CreateRegistry:
         self.append_verg_properties()
 
 
-class DeleteRegistry:
+class DeleteCatalogue:
 
     def __init__(self, service_name: str):
         self.service_name = service_name
@@ -217,10 +227,10 @@ class DeleteRegistry:
         self.camel        = to_camel_case(service_name)
         self.upper        = to_upper(service_name)
 
-        # Base paths (same as CreateRegistry)
+        # Base paths (same as Createcatalogue)
         base = os.getcwd()
         self.resource_path = os.path.join(base, "src", "main", "resources")
-        self.registry_path = os.path.join(base, "src", "main", "java", "com", "registry", "verg")
+        self.catalogue_path = os.path.join(base, "src", "main", "java", "com", "registry", "verg")
         self.util_path     = os.path.join(base, "src", "main", "java", "com", "registry", "verg", "core", "util")
 
     # ------------------------------------------------------------------ #
@@ -229,50 +239,50 @@ class DeleteRegistry:
     def _delete_file(self, file_path: str):
         if Path(file_path).is_file():
             os.remove(file_path)
-            print(f"Deleted  : {file_path}")
+            log(f"Deleted  : {file_path}")
         else:
-            print(f"Skipping : {file_path} does not exist.")
+            log(f"Skipping : {file_path} does not exist.")
 
     def _delete_dir(self, dir_path: str):
         if Path(dir_path).is_dir():
             import shutil
             shutil.rmtree(dir_path)
-            print(f"Deleted  : {dir_path}")
+            log(f"Deleted  : {dir_path}")
         else:
-            print(f"Skipping : {dir_path} does not exist.")
+            log(f"Skipping : {dir_path} does not exist.")
 
     # ------------------------------------------------------------------ #
     #  Java File Deletors                                                  #
     # ------------------------------------------------------------------ #
     def delete_controller(self):
         self._delete_file(
-            os.path.join(self.registry_path, self.lower, "controller", f"{self.pascal}Controller.java")
+            os.path.join(self.catalogue_path, self.lower, "controller", f"{self.pascal}Controller.java")
         )
 
     def delete_entity(self):
         self._delete_file(
-            os.path.join(self.registry_path, self.lower, "entity", f"{self.pascal}Entity.java")
+            os.path.join(self.catalogue_path, self.lower, "entity", f"{self.pascal}Entity.java")
         )
 
     def delete_repository(self):
         self._delete_file(
-            os.path.join(self.registry_path, self.lower, "repository", f"{self.pascal}Repository.java")
+            os.path.join(self.catalogue_path, self.lower, "repository", f"{self.pascal}Repository.java")
         )
 
     def delete_service(self):
         self._delete_file(
-            os.path.join(self.registry_path, self.lower, "service", f"{self.pascal}Service.java")
+            os.path.join(self.catalogue_path, self.lower, "service", f"{self.pascal}Service.java")
         )
 
     def delete_service_impl(self):
         self._delete_file(
-            os.path.join(self.registry_path, self.lower, "service", "impl", f"{self.pascal}ServiceImpl.java")
+            os.path.join(self.catalogue_path, self.lower, "service", "impl", f"{self.pascal}ServiceImpl.java")
         )
 
     def delete_service_directory(self):
         # Deletes the entire service folder after all files are removed
         self._delete_dir(
-            os.path.join(self.registry_path, self.lower)
+            os.path.join(self.catalogue_path, self.lower)
         )
 
     # ------------------------------------------------------------------ #
@@ -297,7 +307,7 @@ class DeleteRegistry:
             content = f.read()
 
         if f"{self.upper}_VALIDATION_FILE_JSON" not in content:
-            print(f"Skipping : Constants for '{self.camel}' do not exist.")
+            log(f"Skipping : Constants for '{self.camel}' do not exist.")
             return
 
         # Remove the 3 constant lines + the comment line
@@ -306,7 +316,7 @@ class DeleteRegistry:
 
         with open(constants_path, "w") as f:
             f.write(updated_content)
-        print(f"Updated  : {constants_path}")
+        log(f"Updated  : {constants_path}")
 
     def remove_application_properties(self):
         properties_path = os.path.join(self.resource_path, "application.properties")
@@ -315,7 +325,7 @@ class DeleteRegistry:
 
         property_key = f"elastic.required.field.{self.camel}.json.path"
         if property_key not in content:
-            print(f"Skipping : '{property_key}' does not exist.")
+            log(f"Skipping : '{property_key}' does not exist.")
             return
 
         # Remove the line that contains the property key
@@ -324,7 +334,7 @@ class DeleteRegistry:
 
         with open(properties_path, "w") as f:
             f.write(updated_content)
-        print(f"Updated  : {properties_path}")
+        log(f"Updated  : {properties_path}")
 
     def remove_verg_properties(self):
         verg_path = os.path.join(self.util_path, "VergProperties.java")
@@ -332,7 +342,7 @@ class DeleteRegistry:
             content = f.read()
 
         if f"elastic{self.pascal}JsonPath" not in content:
-            print(f"Skipping : 'elastic{self.pascal}JsonPath' does not exist.")
+            log(f"Skipping : 'elastic{self.pascal}JsonPath' does not exist.")
             return
 
         # Remove the @Value annotation line + private field line
@@ -341,7 +351,7 @@ class DeleteRegistry:
 
         with open(verg_path, "w") as f:
             f.write(updated_content)
-        print(f"Updated  : {verg_path}")
+        log(f"Updated  : {verg_path}")
 
     # ------------------------------------------------------------------ #
     #  Master Runner                                                       #
@@ -365,17 +375,49 @@ class DeleteRegistry:
         self.remove_verg_properties()
 
 
+class ListCatalogues:
+    def __init__(self):
+        self.base = os.getcwd()
+        self.catalogue_path = os.path.join(self.base, "src", "main", "java", "com", "registry", "verg")
+        if not os.path.isdir(self.catalogue_path):
+            print("catalogue directory not found.")
+            sys.exit(1)
+        self.entries = [d for d in os.listdir(self.catalogue_path) if os.path.isdir(os.path.join(self.catalogue_path, d)) and d != "core"]
+        if self.entries:
+            print("Existing catalogues:")
+            for name in sorted(self.entries):
+                print(f"  - {name}")
+        else:
+            print("No catalogues found.")
+        sys.exit(0)
+
 # ------------------------------------------------------------------ #
 #  Entry Point                                                         #
 # ------------------------------------------------------------------ #
 if __name__ == "__main__":
-    text = pyfiglet.print_figlet(text="VERG",font="slant", colors="green")
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--name",   required=True)
-    parser.add_argument("--action", required=True, choices=["create", "delete"])
+    text = pyfiglet.print_figlet(text="VERG",font="banner3-d", colors="green")
+    parser = argparse.ArgumentParser(
+        prog="verg",
+        description="Scaffold or remove a catalogue service in the catalogue project.",
+        epilog="Examples:\n  python main.py --action create --name order-service\n  python main.py --action delete --name order-service --yes\n  python main.py --list",
+        formatter_class=argparse.RawTextHelpFormatter   # needed so epilog line breaks render correctly
+    )
+    parser.add_argument("--version", action="version", version=f"catalogue handler {__version__}", help="show catalogue handler's version")
+    parser.add_argument("--list","-l", action="store_true", help="List all existing catalogues")
+    parser.add_argument("--quiet", "-q", action="store_true", help="Suppress all output except errors")
+    parser.add_argument("--name",   required=False, metavar="catalogue_NAME",help="Name of the catalogue (e.g. order_service)")
+    parser.add_argument("--action", required=False, choices=["create", "delete"], metavar="ACTION", help="Action to perform: create or delete")
     args = parser.parse_args()
+    QUIET = args.quiet
+
+    if not args.list:
+        if not args.name or not args.action:
+            parser.error("--name and --action are required")
+
+    if args.list:
+        ListCatalogues()
 
     if args.action == "create":
-        CreateRegistry(args.name).generate_all()
+        CreateCatalogue(args.name).generate_all()
     elif args.action == "delete":
-        DeleteRegistry(args.name).delete_all()
+        DeleteCatalogue(args.name).delete_all()

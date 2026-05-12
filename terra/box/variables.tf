@@ -4,7 +4,7 @@
 variable "project_prefix" {
   description = "Prefix to be used for all resource names"
   type        = string
-  default = "verg"
+  default = "leads"
 }
 
 # ──────────────────────────────────────────────
@@ -60,7 +60,7 @@ variable "key_name" {
 # Application
 # ──────────────────────────────────────────────
 variable "docker_image" {
-  description = "ECR image for the Verg application"
+  description = "ECR image for the application"
   type        = string
 }
 
@@ -70,13 +70,13 @@ variable "docker_image" {
 variable "db_name" {
   description = "PostgreSQL database name"
   type        = string
-  default     = "verg_db"
+  default     = "postgres_db"
 }
 
 variable "db_username" {
   description = "PostgreSQL username"
   type        = string
-  default     = "verg_user"
+  default     = "postgres_user"
 }
 
 variable "db_password" {
