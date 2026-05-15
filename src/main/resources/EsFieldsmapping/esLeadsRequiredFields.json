@@ -6,9 +6,28 @@
         "type": "keyword"
     },
     "phNumber": {
-        "type": "text"
+        "type": "keyword"
     },
     "status": {
         "type": "keyword"
+    },
+    "callStatus": {
+        "type": "keyword"
+    },
+    "leadSource": {
+        "type": "keyword"
+    },
+    "calledNumber": {
+        "type": "keyword"
+    },
+    "callerNumber": {
+        "type": "keyword"
+    },
+    "callStartTime": {
+        "type": "date",
+        "format": "yyyy-MM-dd'T'HH:mm:ss'Z'||epoch_millis"
+    },
+    "callDurationSeconds": {
+        "type": "integer"
     }
 }
