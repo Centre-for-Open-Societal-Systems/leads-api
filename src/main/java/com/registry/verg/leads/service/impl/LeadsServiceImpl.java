@@ -38,7 +38,6 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
-
 @Service
 @Slf4j
 public class LeadsServiceImpl implements LeadsService {
@@ -95,8 +94,8 @@ public class LeadsServiceImpl implements LeadsService {
 
             log.info("LeadsServiceImpl::createLeads::persisted leads in postgres");
             ObjectNode jsonNode = objectMapper.createObjectNode();
-//            jsonNode.put("LeadsID",
-//                    leadsEntity.get(Constants.LEADS_ID_RQST).asText());
+            // jsonNode.put("LeadsID",
+            // leadsEntity.get(Constants.LEADS_ID_RQST).asText());
             jsonNode.put("status", Constants.ACTIVE);
             jsonNode.setAll((ObjectNode) leadsEntity);
             Map<String, Object> map = objectMapper.convertValue(jsonNode, Map.class);
@@ -136,8 +135,7 @@ public class LeadsServiceImpl implements LeadsService {
             return response;
         }
         try {
-            searchResult =
-                    esUtilService.searchDocuments(Constants.LEADS_INDEX_NAME, searchCriteria);
+            searchResult = esUtilService.searchDocuments(Constants.LEADS_INDEX_NAME, searchCriteria);
             response.getResult().put(Constants.RESULT, searchResult);
             createSuccessResponse(response);
             return response;
@@ -228,8 +226,8 @@ public class LeadsServiceImpl implements LeadsService {
 
             log.info("LeadsServiceImpl::initiateLead::persisted leads in postgres");
             ObjectNode jsonNode = objectMapper.createObjectNode();
-//            jsonNode.put("LeadsID",
-//                    leadsEntity.get(Constants.LEADS_ID_RQST).asText());
+            // jsonNode.put("LeadsID",
+            // leadsEntity.get(Constants.LEADS_ID_RQST).asText());
             jsonNode.put("status", Constants.INITIATED);
             jsonNode.setAll((ObjectNode) leadsEntity);
             Map<String, Object> map = objectMapper.convertValue(jsonNode, Map.class);
@@ -387,7 +385,6 @@ public class LeadsServiceImpl implements LeadsService {
         }
     }
 
-
     public void createSuccessResponse(CustomResponse response) {
         response.setParams(new RespParam());
         response.getParams().setStatus(Constants.SUCCESS);
@@ -402,7 +399,8 @@ public class LeadsServiceImpl implements LeadsService {
                         .withClaim(Constants.REQUEST_PAYLOAD, reqJsonString)
                         .sign(Algorithm.HMAC256(Constants.JWT_SECRET_KEY));
             } catch (JsonProcessingException e) {
-                // logger.error("Error occurred while converting json object to json string", e);
+                // logger.error("Error occurred while converting json object to json string",
+                // e);
             }
         }
         return "";

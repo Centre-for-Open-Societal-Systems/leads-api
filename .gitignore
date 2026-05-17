@@ -1,4 +1,6 @@
 HELP.md
+postman_collection.json
+Leads_API_Documentation.md
 target/
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
