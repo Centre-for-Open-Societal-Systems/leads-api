@@ -197,11 +197,54 @@ docker run -d \
   -p 8080:8080 \
   "${docker_image}"
 
+# ==========================================
+# 7. KONG API GATEWAY (port 8000 / 8001)
+# ==========================================
+echo "[STEP 7] Setting up Kong API Gateway..."
+cat > /opt/${project_prefix}/kong.yml <<'EOF'
+_format_version: "3.0"
+_transform: true
+
+services:
+  - name: leads-app-service
+    url: http://leads-app:8080
+    routes:
+      - name: leads-app-initiate-route
+        paths:
+          - /leads/v1/initiate
+        strip_path: false
+        plugins:
+          - name: rate-limiting
+            config:
+              minute: 5
+              limit_by: ip
+              policy: local
+      - name: leads-app-default-route
+        paths:
+          - /leads
+        strip_path: false
+EOF
+
+docker run -d \
+  --name ${project_prefix}-kong \
+  --restart unless-stopped \
+  --link ${project_prefix}-app:leads-app \
+  -p 8000:8000 \
+  -p 8001:8001 \
+  -v /opt/${project_prefix}/kong.yml:/etc/kong/kong.yml \
+  -e "KONG_DATABASE=off" \
+  -e "KONG_DECLARATIVE_CONFIG=/etc/kong/kong.yml" \
+  -e "KONG_PROXY_LISTEN=0.0.0.0:8000" \
+  -e "KONG_ADMIN_LISTEN=0.0.0.0:8001" \
+  kong:3.6-ubuntu
+
 echo "========================================="
 echo "Leads Consolidated Instance Setup Complete"
 echo "All services are running on this instance"
-echo "App API    -> http://localhost:8080"
-echo "pgAdmin    -> http://localhost:5050"
-echo "Redis UI   -> http://localhost:8081"
-echo "Kibana     -> http://localhost:5601"
+echo "App API (Raw)   -> http://localhost:8080"
+echo "Kong Gateway    -> http://localhost:8000"
+echo "Kong Admin API  -> http://localhost:8001"
+echo "pgAdmin         -> http://localhost:5050"
+echo "Redis UI        -> http://localhost:8081"
+echo "Kibana          -> http://localhost:5601"
 echo "========================================="

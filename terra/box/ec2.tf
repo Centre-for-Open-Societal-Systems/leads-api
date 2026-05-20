@@ -19,21 +19,21 @@ data "aws_ami" "ubuntu" {
 # ──────────────────────────────────────────────
 # SSH Key Pair (auto-generated)
 # ──────────────────────────────────────────────
-resource "tls_private_key" "ssh" {
-  algorithm = "RSA"
-  rsa_bits  = 4096
-}
+# resource "tls_private_key" "ssh" {
+#   algorithm = "RSA"
+#   rsa_bits  = 4096
+# }
 
-resource "aws_key_pair" "generated" {
-  key_name   = var.key_name
-  public_key = tls_private_key.ssh.public_key_openssh
-}
+# resource "aws_key_pair" "generated" {
+#   key_name   = var.key_name
+#   public_key = tls_private_key.ssh.public_key_openssh
+# }
 
-resource "local_file" "private_key" {
-  content         = tls_private_key.ssh.private_key_pem
-  filename        = "${path.module}/${var.key_name}.pem"
-  file_permission = "0400"
-}
+# resource "local_file" "private_key" {
+#   content         = tls_private_key.ssh.private_key_pem
+#   filename        = "${path.module}/${var.key_name}.pem"
+#   file_permission = "0400"
+# }
 
 # ──────────────────────────────────────────────
 # EC2: Bastion Host (Public Subnet)
@@ -42,7 +42,7 @@ resource "local_file" "private_key" {
 resource "aws_instance" "bastion" {
   ami                         = data.aws_ami.ubuntu.id
   instance_type               = "t2.micro"
-  key_name                    = aws_key_pair.generated.key_name
+  key_name                    = var.key_name
   subnet_id                   = aws_subnet.public.id
   vpc_security_group_ids      = [aws_security_group.bastion.id]
   associate_public_ip_address = true
@@ -60,17 +60,14 @@ resource "aws_instance" "bastion" {
 resource "aws_instance" "nginx" {
   ami                         = data.aws_ami.ubuntu.id
   instance_type               = var.nginx_instance_type
-  key_name                    = aws_key_pair.generated.key_name
+  key_name                    = var.key_name
   subnet_id                   = aws_subnet.public.id
   vpc_security_group_ids      = [aws_security_group.nginx.id]
   associate_public_ip_address = true
 
   user_data = templatefile("${path.module}/templates/nginx_user_data.sh.tpl", {
-    backend_ip           = var.consolidated_ip
-    app_port             = 8080
-    pgadmin_port         = 5050
-    redis_commander_port = 8081
-    kibana_port          = 5601
+    backend_ip = var.consolidated_ip
+    kong_port  = 8000
   })
 
   tags = {
@@ -103,7 +100,7 @@ resource "aws_eip" "nginx" {
 resource "aws_instance" "main" {
   ami           = data.aws_ami.ubuntu.id
   instance_type = var.main_instance_type
-  key_name      = aws_key_pair.generated.key_name
+  key_name      = var.key_name
 
   # Private subnet — no public IP
   subnet_id                   = aws_subnet.private.id

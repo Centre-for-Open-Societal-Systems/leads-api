@@ -25,42 +25,15 @@ server {
         add_header Content-Type text/plain;
     }
 
-    # Leads Spring Boot App (Root API)
+    # Leads Spring Boot App (Root API via Kong API Gateway)
     location /leads/ {
-        proxy_pass http://${backend_ip}:${app_port}/leads/;
+        proxy_pass http://${backend_ip}:${kong_port}/leads/;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_read_timeout 120;
         proxy_send_timeout 120;
-    }
-
-    # pgAdmin
-    location /pgadmin/ {
-        proxy_pass http://${backend_ip}:${pgadmin_port}/;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-    }
-
-    # Redis Commander
-    location /redis/ {
-        proxy_pass http://${backend_ip}:${redis_commander_port}/;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-    }
-
-    # Kibana
-    location /kibana/ {
-        proxy_pass http://${backend_ip}:${kibana_port}/;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
     }
 }
 EOF

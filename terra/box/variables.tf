@@ -61,7 +61,7 @@ variable "nginx_instance_type" {
 variable "key_name" {
   description = "Name of the AWS key pair to create for SSH access"
   type        = string
-  default     = "leads-key"
+  default     = "batman"
 }
 
 variable "consolidated_ip" {

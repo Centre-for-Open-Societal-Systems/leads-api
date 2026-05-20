@@ -27,43 +27,30 @@ output "app_url" {
   value       = "http://${aws_eip.nginx.public_ip}/leads"
 }
 
-output "pgadmin_url" {
-  description = "pgAdmin URL via Nginx (login: admin@admin.com / admin)"
-  value       = "http://${aws_eip.nginx.public_ip}/pgadmin/"
-}
-
-output "redis_commander_url" {
-  description = "Redis Commander URL via Nginx"
-  value       = "http://${aws_eip.nginx.public_ip}/redis/"
-}
-
-output "kibana_url" {
-  description = "Kibana URL via Nginx"
-  value       = "http://${aws_eip.nginx.public_ip}/kibana/"
-}
-
 # ──────────────────────────────────────────────
-# Private Backend
+# Private Backend & Administration SSH Tunnels
 # ──────────────────────────────────────────────
 output "main_private_ip" {
   description = "Private IP of the consolidated backend server"
   value       = aws_instance.main.private_ip
 }
 
-# ──────────────────────────────────────────────
-# SSH Commands
-# ──────────────────────────────────────────────
 output "ssh_bastion" {
   description = "SSH command to connect to the Bastion Host"
-  value       = "ssh -i ${local_file.private_key.filename} ubuntu@${aws_instance.bastion.public_ip}"
+  value       = "ssh -i ${var.key_name}.pem ubuntu@${aws_instance.bastion.public_ip}"
 }
 
 output "ssh_main_via_bastion" {
   description = "SSH command to reach the private backend via Bastion (ProxyJump)"
-  value       = "ssh -i ${local_file.private_key.filename} -J ubuntu@${aws_instance.bastion.public_ip} ubuntu@${aws_instance.main.private_ip}"
+  value       = "ssh -i ${var.key_name}.pem -J ubuntu@${aws_instance.bastion.public_ip} ubuntu@${aws_instance.main.private_ip}"
 }
 
-output "private_key_file" {
-  description = "Path to the generated SSH private key file"
-  value       = local_file.private_key.filename
+output "ssh_tunnel_admin_tools" {
+  description = "One-click SSH command to securely tunnel all admin tools (pgAdmin, Redis, Kibana, Elasticsearch, Kong) to your localhost"
+  value       = "ssh -i ${var.key_name}.pem -J ubuntu@${aws_instance.bastion.public_ip} ubuntu@${aws_instance.main.private_ip} -L 5050:localhost:5050 -L 8081:localhost:8081 -L 5601:localhost:5601 -L 9200:localhost:9200 -L 8001:localhost:8001 -N"
 }
+
+# output "private_key_file" {
+#   description = "Path to the generated SSH private key file"
+#   value       = local_file.private_key.filename
+# }

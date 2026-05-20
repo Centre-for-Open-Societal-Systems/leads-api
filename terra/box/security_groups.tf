@@ -64,7 +64,7 @@ resource "aws_security_group" "nginx" {
 
 # ──────────────────────────────────────────────
 # Private Security Group (Backend Consolidated Instance)
-# Only accepts traffic from Bastion (SSH) and Nginx (app ports)
+# Only accepts traffic from Bastion (SSH) and Nginx (Kong API Gateway)
 # ──────────────────────────────────────────────
 resource "aws_security_group" "private" {
   name        = "${var.project_prefix}-private-sg"
@@ -80,38 +80,11 @@ resource "aws_security_group" "private" {
     security_groups = [aws_security_group.bastion.id]
   }
 
-  # App API from Nginx
+  # Kong API Gateway from Nginx
   ingress {
-    description     = "App API from Nginx"
-    from_port       = 8080
-    to_port         = 8080
-    protocol        = "tcp"
-    security_groups = [aws_security_group.nginx.id]
-  }
-
-  # pgAdmin from Nginx
-  ingress {
-    description     = "pgAdmin from Nginx"
-    from_port       = 5050
-    to_port         = 5050
-    protocol        = "tcp"
-    security_groups = [aws_security_group.nginx.id]
-  }
-
-  # Redis Commander from Nginx
-  ingress {
-    description     = "Redis Commander from Nginx"
-    from_port       = 8081
-    to_port         = 8081
-    protocol        = "tcp"
-    security_groups = [aws_security_group.nginx.id]
-  }
-
-  # Kibana from Nginx
-  ingress {
-    description     = "Kibana from Nginx"
-    from_port       = 5601
-    to_port         = 5601
+    description     = "Kong API Gateway from Nginx"
+    from_port       = 8000
+    to_port         = 8000
     protocol        = "tcp"
     security_groups = [aws_security_group.nginx.id]
   }
