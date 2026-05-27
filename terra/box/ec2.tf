@@ -131,6 +131,12 @@ resource "aws_instance" "main" {
     db_password = var.db_password
     es_username = var.es_username
     es_password = var.es_password
+
+    # Webhook configuration
+    a2c_webhook_url        = var.a2c_webhook_url
+    a2c_webhook_enabled    = var.a2c_webhook_enabled
+    a2c_webhook_api_key    = var.a2c_webhook_api_key
+    a2c_webhook_api_secret = var.a2c_webhook_api_secret
   }))
 
   tags = {

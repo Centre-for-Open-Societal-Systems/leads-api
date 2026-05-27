@@ -601,7 +601,14 @@ resource "helm_release" "kong" {
 # Secrets
 # ----------------------------------
 data "kubectl_file_documents" "secrets" {
-  content = file("${path.module}/k8/00-secrets.yaml")
+  content = templatefile("${path.module}/k8/00-secrets.yaml.tpl", {
+    db_username            = var.db_username
+    db_password            = var.db_password
+    es_username            = var.es_username
+    es_password            = var.es_password
+    a2c_webhook_api_key    = var.a2c_webhook_api_key
+    a2c_webhook_api_secret = var.a2c_webhook_api_secret
+  })
 }
 
 resource "kubectl_manifest" "secrets" {
@@ -615,8 +622,10 @@ resource "kubectl_manifest" "secrets" {
 # ----------------------------------
 data "kubectl_file_documents" "configmap" {
   content = templatefile("${path.module}/k8/01-configmap.yaml.tpl", {
-    db_private_ip = var.db_private_ip
-    db_name       = var.db_name
+    db_private_ip       = var.db_private_ip
+    db_name             = var.db_name
+    a2c_webhook_url     = var.a2c_webhook_url
+    a2c_webhook_enabled = var.a2c_webhook_enabled
   })
 }
 

@@ -21,3 +21,7 @@ data:
   # Elasticsearch — via ExternalName service "leads-elasticsearch"
   ELASTICSEARCH_HOST: "leads-elasticsearch"
   ELASTICSEARCH_PORT: "9200"
+
+  # Webhook Settings
+  A2C_WEBHOOK_INITIATE_URL: "${a2c_webhook_url}"
+  A2C_WEBHOOK_INITIATE_ENABLED: "${a2c_webhook_enabled}"

@@ -22,17 +22,20 @@ import com.registry.verg.core.util.PrimaryKeyUtil;
 import com.registry.verg.leads.entity.LeadsEntity;
 import com.registry.verg.leads.repository.LeadsRepository;
 import com.registry.verg.leads.service.LeadsService;
+import com.registry.verg.core.service.OutboundRequestHandlerServiceImpl;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 import java.sql.Timestamp;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -65,10 +68,25 @@ public class LeadsServiceImpl implements LeadsService {
     @Autowired
     private VergProperties vergProperties;
 
+    @Autowired
+    private OutboundRequestHandlerServiceImpl outboundRequestHandler;
+
     private Logger logger = LoggerFactory.getLogger(LeadsServiceImpl.class);
 
     @Value("${spring.redis.cacheTtl}")
     private long searchResultRedisTtl;
+
+    @Value("${a2c.webhook.initiate.url}")
+    private String a2cwebhookInitiateUrl;
+
+    @Value("${a2c.webhook.initiate.enabled}")
+    private boolean a2cwebhookInitiateEnabled;
+
+    @Value("${a2c.webhook.api-key}")
+    private String a2cWebhookApiKey;
+
+    @Value("${a2c.webhook.api-secret}")
+    private String a2cWebhookApiSecret;
 
     @Override
     public CustomResponse createLeads(JsonNode leadsEntity) {
@@ -100,7 +118,7 @@ public class LeadsServiceImpl implements LeadsService {
             jsonNode.setAll((ObjectNode) leadsEntity);
             Map<String, Object> map = objectMapper.convertValue(jsonNode, Map.class);
             esUtilService.addDocument(Constants.LEADS_INDEX_NAME, Constants.INDEX_TYPE,
-                    String.valueOf(primaryID), map, vergProperties.getElasticLeadsJsonPath());
+                    String.valueOf(primaryID), new HashMap<>(map), vergProperties.getElasticLeadsJsonPath());
             cacheService.putCache(primaryID, jsonNode);
             response.setMessage(Constants.SUCCESSFULLY_CREATED);
             map.put(Constants.LEADS_ID_RQST, primaryID);
@@ -232,13 +250,19 @@ public class LeadsServiceImpl implements LeadsService {
             jsonNode.setAll((ObjectNode) leadsEntity);
             Map<String, Object> map = objectMapper.convertValue(jsonNode, Map.class);
             esUtilService.addDocument(Constants.LEADS_INDEX_NAME, Constants.INDEX_TYPE,
-                    String.valueOf(primaryID), map, vergProperties.getElasticLeadsJsonPath());
+                    String.valueOf(primaryID), new HashMap<>(map), vergProperties.getElasticLeadsJsonPath());
             cacheService.putCache(primaryID, jsonNode);
             response.setMessage(Constants.SUCCESSFULLY_CREATED);
             map.put(Constants.LEADS_ID_RQST, primaryID);
             response.setResult(map);
             response.setResponseCode(HttpStatus.OK);
             log.info("LeadsServiceImpl::initiateLead::persisted leads in Verg");
+
+            // Fire webhook asynchronously after all persistence is complete
+            if (a2cwebhookInitiateEnabled && StringUtils.isNotEmpty(a2cwebhookInitiateUrl)) {
+                sendToWebhookAsync(a2cwebhookInitiateUrl, map);
+            }
+
             return response;
 
         } catch (Exception e) {
@@ -295,7 +319,7 @@ public class LeadsServiceImpl implements LeadsService {
             }
             Map<String, Object> map = objectMapper.convertValue(jsonNode, Map.class);
             esUtilService.updateDocument(Constants.LEADS_INDEX_NAME, Constants.INDEX_TYPE,
-                    leads_id, map, vergProperties.getElasticLeadsJsonPath());
+                    leads_id, new HashMap<>(map), vergProperties.getElasticLeadsJsonPath());
 
             // 7. Update Redis cache
             cacheService.putCache(leads_id, jsonNode);
@@ -364,7 +388,7 @@ public class LeadsServiceImpl implements LeadsService {
             }
             Map<String, Object> map = objectMapper.convertValue(jsonNode, Map.class);
             esUtilService.updateDocument(Constants.LEADS_INDEX_NAME, Constants.INDEX_TYPE,
-                    leads_id, map, vergProperties.getElasticLeadsJsonPath());
+                    leads_id, new HashMap<>(map), vergProperties.getElasticLeadsJsonPath());
 
             // 7. Update Redis cache
             cacheService.putCache(leads_id, jsonNode);
@@ -411,5 +435,18 @@ public class LeadsServiceImpl implements LeadsService {
         response.setParams(new RespParam());
         response.getParams().setStatus(status);
         response.setResponseCode(httpStatus);
+    }
+
+    @Async
+    public void sendToWebhookAsync(String url, Map<String, Object> payload) {
+        try {
+            log.info("LeadsServiceImpl::sendToWebhookAsync::sending lead data to webhook: {}", url);
+            Map<String, String> headers = new HashMap<>();
+            headers.put("Authorization", "token " + a2cWebhookApiKey + ":" + a2cWebhookApiSecret);
+            Object result = outboundRequestHandler.fetchResultUsingPost(url, payload, headers);
+            log.info("LeadsServiceImpl::sendToWebhookAsync::webhook response received: {}", result);
+        } catch (Exception e) {
+            log.error("LeadsServiceImpl::sendToWebhookAsync::failed to send webhook: {}", e.getMessage(), e);
+        }
     }
 }

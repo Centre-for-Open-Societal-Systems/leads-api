@@ -34,3 +34,11 @@ db_username = "postgres_user"
 db_password = "<your_password>"
 es_username = "elastic"
 es_password = "<your_password>"
+
+# ──────────────────────────────────────────────
+# Webhook Configuration
+# ──────────────────────────────────────────────
+a2c_webhook_url        = "<your_webhook_url>"
+a2c_webhook_enabled    = "true"
+a2c_webhook_api_key    = "<your_webhook_api_key>"
+a2c_webhook_api_secret = "<your_webhook_api_secret>"

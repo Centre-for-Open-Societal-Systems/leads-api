@@ -102,3 +102,6 @@ terra/dev/
 
 # Ignore .pem files
 *.pem
+
+#test tools
+tools/

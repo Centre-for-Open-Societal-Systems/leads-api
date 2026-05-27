@@ -9,7 +9,7 @@
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.registry</groupId>
-	<artifactId>verg</artifactId>
+	<artifactId>leads-mgmt</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
 	<name>verg</name>
 	<description>Verg Registry Implementation</description>

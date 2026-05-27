@@ -22,7 +22,22 @@ echo "vm.max_map_count=262144" >> /etc/sysctl.conf
 # 2. Install Docker & AWS CLI
 # ----------------------------------
 echo "[STEP 2] Installing Docker and AWS CLI..."
-apt-get update -y
+
+echo "Waiting for NAT Gateway internet connectivity..."
+until ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; do
+  echo "Still waiting for internet..."
+  sleep 5
+done
+
+echo "Internet reachable. Running apt-get update..."
+n=0
+until [ "$n" -ge 10 ]; do
+  apt-get update -y && break
+  n=$((n+1))
+  echo "apt-get update failed. Retrying in 10 seconds... (attempt $n/10)"
+  sleep 10
+done
+
 apt-get install -y docker.io unzip
 systemctl start docker
 systemctl enable docker
@@ -194,6 +209,10 @@ docker run -d \
   -e ELASTICSEARCH_PORT="9200" \
   -e ELASTICSEARCH_USERNAME="${es_username}" \
   -e ELASTICSEARCH_PASSWORD="${es_password}" \
+  -e A2C_WEBHOOK_INITIATE_URL="${a2c_webhook_url}" \
+  -e A2C_WEBHOOK_INITIATE_ENABLED="${a2c_webhook_enabled}" \
+  -e A2C_WEBHOOK_API_KEY="${a2c_webhook_api_key}" \
+  -e A2C_WEBHOOK_API_SECRET="${a2c_webhook_api_secret}" \
   -p 8080:8080 \
   "${docker_image}"
 

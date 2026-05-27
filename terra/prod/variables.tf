@@ -132,3 +132,31 @@ variable "eks_node_instance_type" {
   type        = string
   default     = "t3.medium"
 }
+
+# ==================================
+# Webhook Configuration
+# ==================================
+
+variable "a2c_webhook_url" {
+  description = "Webhook URL for initiating leads"
+  type        = string
+  default     = "http://development.localhost:8000/api/method/oan_a2c.api.v1.webhooks.lead_inbound"
+}
+
+variable "a2c_webhook_enabled" {
+  description = "Flag to enable or disable the webhook"
+  type        = string
+  default     = "true"
+}
+
+variable "a2c_webhook_api_key" {
+  description = "API key for the webhook"
+  type        = string
+  sensitive   = true
+}
+
+variable "a2c_webhook_api_secret" {
+  description = "API secret for the webhook"
+  type        = string
+  sensitive   = true
+}

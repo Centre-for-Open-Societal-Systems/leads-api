@@ -61,6 +61,16 @@ spec:
                 secretKeyRef:
                   name: leads-secrets
                   key: ELASTICSEARCH_PASSWORD
+            - name: A2C_WEBHOOK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: leads-secrets
+                  key: A2C_WEBHOOK_API_KEY
+            - name: A2C_WEBHOOK_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: leads-secrets
+                  key: A2C_WEBHOOK_API_SECRET
           resources:
             requests:
               memory: "512Mi"
