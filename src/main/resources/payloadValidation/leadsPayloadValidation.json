@@ -11,13 +11,13 @@
         "location": {
             "type": "string"
         },
-        "phNumber": {
+        "phone_number": {
             "type": "string",
             "description": "Phone number of the lead"
         }
     },
     "required": [
         "location",
-        "phNumber"
+        "phone_number"
     ]
 }

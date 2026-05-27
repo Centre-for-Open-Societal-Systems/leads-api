@@ -260,7 +260,9 @@ public class LeadsServiceImpl implements LeadsService {
 
             // Fire webhook asynchronously after all persistence is complete
             if (a2cwebhookInitiateEnabled && StringUtils.isNotEmpty(a2cwebhookInitiateUrl)) {
-                sendToWebhookAsync(a2cwebhookInitiateUrl, map);
+                Map<String, Object> webhookPayload = new HashMap<>(map);
+                webhookPayload.put("external_ref_id", primaryID);
+                sendToWebhookAsync(a2cwebhookInitiateUrl, webhookPayload);
             }
 
             return response;

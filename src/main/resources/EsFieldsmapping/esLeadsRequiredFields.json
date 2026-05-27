@@ -5,7 +5,7 @@
     "location": {
         "type": "keyword"
     },
-    "phNumber": {
+    "phone_number": {
         "type": "keyword"
     },
     "status": {
