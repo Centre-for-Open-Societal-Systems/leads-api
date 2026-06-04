@@ -19,6 +19,7 @@ import com.registry.verg.core.util.Constants;
 import com.registry.verg.core.util.PayloadValidation;
 import com.registry.verg.core.util.VergProperties;
 import com.registry.verg.core.util.PrimaryKeyUtil;
+import com.registry.verg.core.util.PhoneNumberLookupUtil;
 import com.registry.verg.leads.entity.LeadsEntity;
 import com.registry.verg.leads.repository.LeadsRepository;
 import com.registry.verg.leads.service.LeadsService;
@@ -70,6 +71,9 @@ public class LeadsServiceImpl implements LeadsService {
 
     @Autowired
     private OutboundRequestHandlerServiceImpl outboundRequestHandler;
+
+    @Autowired
+    private PhoneNumberLookupUtil phoneNumberLookupUtil;
 
     private Logger logger = LoggerFactory.getLogger(LeadsServiceImpl.class);
 
@@ -228,6 +232,19 @@ public class LeadsServiceImpl implements LeadsService {
 
         log.debug("LeadsServiceImpl::initiateLead:validated the payload");
         try {
+            // Check for existing lead with the same phone_number via Redis
+            String phoneNumber = leadsEntity.has("phone_number") ? leadsEntity.get("phone_number").asText() : null;
+            if (StringUtils.isNotEmpty(phoneNumber)) {
+                String existingLeadId = phoneNumberLookupUtil.findLeadIdByPhoneNumber(phoneNumber);
+                if (existingLeadId != null) {
+                    log.info("LeadsServiceImpl::initiateLead::duplicate phone_number found, updating existing lead: {}",
+                            existingLeadId);
+                    CustomResponse updateResponse = updateLead(existingLeadId, leadsEntity);
+                    updateResponse.setMessage("Lead updated for existing phone number");
+                    return updateResponse;
+                }
+            }
+
             log.info("LeadsServiceImpl::initiateLead:initiating leads");
             LeadsEntity leadsEntity1 = new LeadsEntity();
             // Generate Primary Key
@@ -252,6 +269,10 @@ public class LeadsServiceImpl implements LeadsService {
             esUtilService.addDocument(Constants.LEADS_INDEX_NAME, Constants.INDEX_TYPE,
                     String.valueOf(primaryID), new HashMap<>(map), vergProperties.getElasticLeadsJsonPath());
             cacheService.putCache(primaryID, jsonNode);
+            // Cache phone_number → lead_id mapping in Redis
+            if (StringUtils.isNotEmpty(phoneNumber)) {
+                phoneNumberLookupUtil.cachePhoneNumberMapping(phoneNumber, primaryID);
+            }
             response.setMessage(Constants.SUCCESSFULLY_CREATED);
             map.put(Constants.LEADS_ID_RQST, primaryID);
             response.setResult(map);
@@ -267,11 +288,82 @@ public class LeadsServiceImpl implements LeadsService {
 
             return response;
 
+        } catch (CustomException e) {
+            throw e;
         } catch (Exception e) {
             throw new CustomException("error while processing", e.getMessage(),
                     HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
+
+    @Override
+    public CustomResponse updateLead(String leadsId, JsonNode leadsEntity) {
+        log.info("LeadsServiceImpl::updateLead:entered the method: leadsId={}, payload={}", leadsId, leadsEntity);
+        CustomResponse response = new CustomResponse();
+        payloadValidation.validatePayload(Constants.LEADS_VALIDATION_FILE_JSON, leadsEntity);
+
+        log.debug("LeadsServiceImpl::updateLead:validated the payload");
+
+        // 1. Find existing lead by ID
+        Optional<LeadsEntity> entityOptional = leadsRepository.findById(leadsId);
+        if (entityOptional.isEmpty()) {
+            throw new CustomException("Lead not found",
+                    "No lead found with id: " + leadsId,
+                    HttpStatus.NOT_FOUND);
+        }
+
+        try {
+            LeadsEntity existingLead = entityOptional.get();
+
+            // 2. Update data and timestamp (preserve original createdOn and status)
+            Timestamp currentTime = new Timestamp(System.currentTimeMillis());
+            existingLead.setUpdatedOn(currentTime);
+            existingLead.setData(leadsEntity);
+
+            // 3. Save to Postgres
+            leadsRepository.save(existingLead);
+            log.info("LeadsServiceImpl::updateLead::updated lead in postgres");
+
+            // 4. Update Elasticsearch document
+            ObjectNode jsonNode = objectMapper.createObjectNode();
+            jsonNode.put("status", existingLead.getStatus());
+            jsonNode.setAll((ObjectNode) leadsEntity);
+            Map<String, Object> map = objectMapper.convertValue(jsonNode, Map.class);
+            esUtilService.updateDocument(Constants.LEADS_INDEX_NAME, Constants.INDEX_TYPE,
+                    leadsId, new HashMap<>(map), vergProperties.getElasticLeadsJsonPath());
+
+            // 5. Update Redis cache
+            cacheService.putCache(leadsId, jsonNode);
+            // Update phone_number → lead_id mapping in Redis
+            String phoneNumber = leadsEntity.has("phone_number") ? leadsEntity.get("phone_number").asText() : null;
+            if (StringUtils.isNotEmpty(phoneNumber)) {
+                phoneNumberLookupUtil.cachePhoneNumberMapping(phoneNumber, leadsId);
+            }
+
+            // 6. Build success response
+            response.setMessage(Constants.SUCCESSFULLY_UPDATED);
+            map.put(Constants.LEADS_ID_RQST, leadsId);
+            response.setResult(map);
+            response.setResponseCode(HttpStatus.OK);
+            log.info("LeadsServiceImpl::updateLead::updated lead in Verg");
+
+            // 7. Fire webhook asynchronously
+            if (a2cwebhookInitiateEnabled && StringUtils.isNotEmpty(a2cwebhookInitiateUrl)) {
+                Map<String, Object> webhookPayload = new HashMap<>(map);
+                webhookPayload.put("external_ref_id", leadsId);
+                sendToWebhookAsync(a2cwebhookInitiateUrl, webhookPayload);
+            }
+
+            return response;
+
+        } catch (CustomException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new CustomException("error while processing", e.getMessage(),
+                    HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
 
     @Override
     public CustomResponse qualifyLead(String leads_id, String status) {

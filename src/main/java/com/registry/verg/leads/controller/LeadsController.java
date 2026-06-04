@@ -56,5 +56,12 @@ public class LeadsController {
         return new ResponseEntity<>(response, response.getResponseCode());
     }
 
+    @PutMapping("/v1/update/{leads_id}")
+    public ResponseEntity<CustomResponse> updateLead(@PathVariable("leads_id") String leadsId,
+                                                      @RequestBody JsonNode leadsDetails) {
+        CustomResponse response = leadsService.updateLead(leadsId, leadsDetails);
+        return new ResponseEntity<>(response, response.getResponseCode());
+    }
+
     
 }

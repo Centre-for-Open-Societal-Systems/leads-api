@@ -22,4 +22,6 @@ public interface LeadsService {
     CustomResponse qualifyLead(String leads_id, String status);
 
     CustomResponse processLead(String leads_id, String status);
+
+    CustomResponse updateLead(String leadsId, JsonNode leadsEntity);
 }

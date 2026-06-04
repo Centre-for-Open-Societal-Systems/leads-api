@@ -332,6 +332,10 @@ resource "aws_instance" "bastion" {
     Name = "${var.project_prefix} - Bastion"
     Role = "bastion"
   }
+
+  lifecycle {
+    ignore_changes = [ami]
+  }
 }
 
 # ==================================
@@ -368,6 +372,10 @@ resource "aws_instance" "database" {
   tags = {
     Name = "${var.project_prefix} - Database"
     Role = "database"
+  }
+
+  lifecycle {
+    ignore_changes = [ami]
   }
 
   depends_on = [aws_route_table_association.private]
