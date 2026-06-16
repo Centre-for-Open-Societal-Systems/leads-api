@@ -72,3 +72,24 @@ output "vpc_id" {
   description = "The ID of the VPC"
   value       = aws_vpc.leads.id
 }
+
+
+
+# ==================================
+# Jenkins
+# ==================================
+
+output "jenkins_private_ip" {
+  description = "Private IP of the Jenkins EC2"
+  value       = aws_instance.jenkins.private_ip
+}
+
+output "ssh_to_jenkins_via_bastion" {
+  description = "SSH to Jenkins via Bastion"
+  value       = "ssh -i batman.pem -o ProxyJump=ubuntu@${aws_instance.bastion.public_ip} ubuntu@${aws_instance.jenkins.private_ip}"
+}
+
+output "tunnel_jenkins" {
+  description = "SSH tunnel for Jenkins UI (access at localhost:8080)"
+  value       = "ssh -i batman.pem -L 8080:${aws_instance.jenkins.private_ip}:8080 ubuntu@${aws_instance.bastion.public_ip}"
+}

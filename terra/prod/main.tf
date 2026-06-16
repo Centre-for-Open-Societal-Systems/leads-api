@@ -314,6 +314,76 @@ resource "aws_security_group" "eks_node_sg" {
     Name = "SG: EKS Node ${var.project_prefix}"
   }
 }
+# ==================================
+# Jenkins Security Group
+# ==================================
+
+resource "aws_security_group" "jenkins_sg" {
+  name        = "${var.project_prefix}-jenkins-sg"
+  description = "Security group for Jenkins EC2 - private subnet"
+  vpc_id      = aws_vpc.leads.id
+
+  # Jenkins UI + webhooks from within VPC (NGINX Ingress → Jenkins)
+  ingress {
+    description = "Jenkins HTTP from VPC"
+    from_port   = 8080
+    to_port     = 8080
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+  }
+
+  # SSH from Bastion only
+  ingress {
+    description     = "SSH from Bastion"
+    from_port       = 22
+    to_port         = 22
+    protocol        = "tcp"
+    security_groups = [aws_security_group.bastion_sg.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "SG: Jenkins ${var.project_prefix}"
+  }
+}
+
+
+# Jenkins EC2 (Private Subnet)
+resource "aws_instance" "jenkins" {
+  ami           = data.aws_ami.ubuntu.id
+  instance_type = var.jenkins_instance_type
+  key_name      = var.key_name
+
+  subnet_id              = aws_subnet.private.id
+  vpc_security_group_ids = [aws_security_group.jenkins_sg.id]
+
+  # Static private IP for the K8s Endpoints to target
+  private_ip = var.jenkins_private_ip
+
+  root_block_device {
+    volume_size = 40
+    volume_type = "gp3"
+  }
+
+  user_data = templatefile("${path.module}/templates/jenkins_user_data.sh.tpl", {})
+
+  tags = {
+    Name = "${var.project_prefix} - Jenkins"
+    Role = "cicd"
+  }
+
+  lifecycle {
+    ignore_changes = [ami]
+  }
+
+  depends_on = [aws_route_table_association.private]
+}
 
 # ==================================
 # Bastion Host (Public Subnet)
@@ -542,6 +612,39 @@ resource "aws_eks_node_group" "leads_nodes" {
 }
 
 # ==================================
+# Jenkins External Service
+# ==================================
+data "kubectl_file_documents" "jenkins_external" {
+  content = templatefile("${path.module}/k8/07-jenkins-external.yaml.tpl", {
+    jenkins_private_ip = var.jenkins_private_ip
+  })
+}
+
+resource "kubectl_manifest" "jenkins_external" {
+  for_each   = data.kubectl_file_documents.jenkins_external.manifests
+  yaml_body  = each.value
+  depends_on = [aws_eks_node_group.leads_nodes, aws_instance.jenkins]
+}
+
+# ==================================
+# NGINX -> Jenkins Ingress
+# ==================================
+data "kubectl_file_documents" "nginx_to_jenkins" {
+  content = file("${path.module}/k8/08-nginx-to-jenkins.yaml")
+}
+
+resource "kubectl_manifest" "nginx_to_jenkins" {
+  for_each  = data.kubectl_file_documents.nginx_to_jenkins.manifests
+  yaml_body = each.value
+
+  depends_on = [
+    helm_release.ingress_nginx,
+    kubectl_manifest.jenkins_external
+  ]
+}
+
+
+# ==================================
 # NGINX Ingress Controller via Helm
 # ==================================
 
@@ -574,30 +677,30 @@ resource "helm_release" "ingress_nginx" {
 # Proxy service is ClusterIP (no AWS NLB created).
 # Ingress Controller is enabled to process KongPlugin CRDs.
 
-resource "helm_release" "kong" {
-  name             = "kong"
-  repository       = "https://charts.konghq.com"
-  chart            = "kong"
-  namespace        = "kong"
-  create_namespace = true
-  version          = "2.38.0"
+  resource "helm_release" "kong" {
+    name             = "kong"
+    repository       = "https://charts.konghq.com"
+    chart            = "kong"
+    namespace        = "kong"
+    create_namespace = true
+    version          = "2.38.0"
 
-  values = [
-    <<-EOF
-    env:
-      database: "off"
-    proxy:
-      type: ClusterIP
-    ingressController:
-      installCRDs: true
-      ingressClass: kong
-    EOF
-  ]
+    values = [
+      <<-EOF
+      env:
+        database: "off"
+      proxy:
+        type: ClusterIP
+      ingressController:
+        installCRDs: true
+        ingressClass: kong
+      EOF
+    ]
 
-  depends_on = [
-    aws_eks_node_group.leads_nodes
-  ]
-}
+    depends_on = [
+      aws_eks_node_group.leads_nodes
+    ]
+  }
 
 # ==================================
 # Kubernetes Manifests Deployment
