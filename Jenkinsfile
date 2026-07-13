@@ -26,7 +26,7 @@ pipeline {
                         docker login --username AWS --password-stdin $ECR_REGISTRY
                     '''
                 }
-            }j
+            }
         }
 
         stage('Build Docker Image') {
