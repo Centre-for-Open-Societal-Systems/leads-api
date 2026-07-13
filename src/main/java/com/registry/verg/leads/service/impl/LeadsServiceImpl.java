@@ -220,8 +220,62 @@ public class LeadsServiceImpl implements LeadsService {
     }
 
     @Override
-    public CustomResponse delete(String id) {
-        return null;
+    public CustomResponse deleteLead(String id) {
+        log.info("LeadsServiceImpl::deleteLead:entered the method: " + id);
+        CustomResponse response = new CustomResponse();
+        if (StringUtils.isEmpty(id)) {
+            response.setResponseCode(HttpStatus.INTERNAL_SERVER_ERROR);
+            response.setMessage(Constants.ID_NOT_FOUND);
+            return response;
+        }
+        try {
+            // 1. Verify existence and delete from Postgres
+            Optional<LeadsEntity> entityOptional = leadsRepository.findById(id);
+            if (entityOptional.isPresent()) {
+                LeadsEntity leadsEntity = entityOptional.get();
+                leadsRepository.delete(leadsEntity);
+                log.info("LeadsServiceImpl::deleteLead:Deleted from Postgres");
+
+                // Remove phone number mapping if it exists
+                if (leadsEntity.getData() != null && leadsEntity.getData().has("phone_number")) {
+                    String phoneNumber = leadsEntity.getData().get("phone_number").asText();
+                    if (StringUtils.isNotEmpty(phoneNumber)) {
+                        cacheService.deleteCache("phone:" + phoneNumber);
+                        log.info("LeadsServiceImpl::deleteLead:Deleted phone number mapping from Redis");
+                    }
+                }
+            } else {
+                log.warn("LeadsServiceImpl::deleteLead:Lead not found in Postgres DB with id: " + id);
+                response.setResponseCode(HttpStatus.NOT_FOUND);
+                response.setMessage(Constants.INVALID_ID);
+                return response;
+            }
+
+            // 2. Delete from Elasticsearch
+            try {
+                esUtilService.deleteDocument(id, Constants.LEADS_INDEX_NAME);
+                log.info("LeadsServiceImpl::deleteLead:Deleted from Elasticsearch");
+            } catch (Exception e) {
+                log.error("LeadsServiceImpl::deleteLead:Error deleting from Elasticsearch: " + e.getMessage());
+            }
+
+            // 3. Delete from Redis Cache
+            cacheService.deleteCache(id);
+            log.info("LeadsServiceImpl::deleteLead:Deleted from Redis Cache");
+
+            response.setMessage(Constants.SUCCESSFULLY_DELETED);
+            Map<String, Object> map = new HashMap<>();
+            map.put(Constants.LEADS_ID_RQST, id);
+            response.setResult(map);
+            createSuccessResponse(response);
+
+        } catch (Exception e) {
+            log.error("LeadsServiceImpl::deleteLead:error while processing: {}", e.getMessage());
+            throw new CustomException(Constants.ERROR, "error while processing",
+                    HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+        
+        return response;
     }
 
     @Override

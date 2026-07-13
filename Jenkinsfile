@@ -5,7 +5,9 @@ pipeline {
         ECR_REGISTRY   = '379220350808.dkr.ecr.us-west-2.amazonaws.com'
         ECR_REPOSITORY = 'leads-a2c'
         AWS_REGION     = 'us-west-2'
-        IMAGE_TAG      = "${env.GIT_COMMIT?.take(7) ?: 'latest'}"
+        DEPLOY_ENV     = "${env.DEPLOY_ENV ?: 'dev'}"
+        FLOATING_TAG   = "${DEPLOY_ENV}-latest"
+        IMAGE_TAG      = "${DEPLOY_ENV}-${env.GIT_COMMIT?.take(7) ?: 'latest'}"
     }
 
     stages {
@@ -24,14 +26,14 @@ pipeline {
                         docker login --username AWS --password-stdin $ECR_REGISTRY
                     '''
                 }
-            }
+            }j
         }
 
         stage('Build Docker Image') {
             steps {
                 sh """
-                    docker build -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest .
-                    docker tag ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest \
+                    docker build -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:${FLOATING_TAG} .
+                    docker tag ${ECR_REGISTRY}/${ECR_REPOSITORY}:${FLOATING_TAG} \
                                ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
                 """
             }
@@ -40,7 +42,7 @@ pipeline {
         stage('Push to ECR') {
             steps {
                 sh """
-                    docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
+                    docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:${FLOATING_TAG}
                     docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
                 """
             }
@@ -49,7 +51,7 @@ pipeline {
 
     post {
         always {
-            sh "docker rmi ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest || true"
+            sh "docker rmi ${ECR_REGISTRY}/${ECR_REPOSITORY}:${FLOATING_TAG} || true"
             sh "docker rmi ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} || true"
         }
         success {

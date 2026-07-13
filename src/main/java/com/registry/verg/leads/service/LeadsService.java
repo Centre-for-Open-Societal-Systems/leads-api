@@ -15,7 +15,7 @@ public interface LeadsService {
 
     CustomResponse read(String id);
 
-    CustomResponse delete(String id);
+    CustomResponse deleteLead(String id);
 
     CustomResponse initiateLead(JsonNode leadsEntity);
 

@@ -33,6 +33,13 @@ public class LeadsController {
         return new ResponseEntity<>(response, HttpStatus.OK);
     }
 
+
+    @DeleteMapping("/v1/delete/{id}")
+    public ResponseEntity<?> delete(@PathVariable String id) {
+        CustomResponse response = leadsService.deleteLead(id);
+        return new ResponseEntity<>(response, HttpStatus.OK);
+    }    
+
     @PostMapping("/v1/initiate")
     public ResponseEntity<CustomResponse> initiateLead(@RequestBody JsonNode leadsDetails) {
         CustomResponse response = leadsService.initiateLead(leadsDetails);
