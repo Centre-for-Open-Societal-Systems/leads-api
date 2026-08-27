@@ -11,6 +11,7 @@ import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.springframework.data.redis.cache.RedisCacheConfiguration;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.connection.RedisPassword;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceClientConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
@@ -32,6 +33,12 @@ public class RedisConfig {
     @Value("${spring.redis.port}")
     private int redisPort;
 
+    // Empty default so passwordless setups (e.g. the local docker-compose redis) still
+    // work; a secured redis (like the shared 44 instance, which sets requirepass) supplies
+    // it via SPRING_REDIS_PASSWORD -> spring.redis.password.
+    @Value("${spring.redis.password:}")
+    private String redisPassword;
+
     private final long redisTimeout = 60000;
 
     @Bean
@@ -40,6 +47,12 @@ public class RedisConfig {
         configuration.setHostName(redisHost);
         configuration.setPort(redisPort);
         configuration.setDatabase(0);
+        // Only set a password when one is configured — otherwise Lettuce would send AUTH
+        // to a passwordless server and fail. This custom factory bypasses Spring Boot's
+        // auto-config, so the password MUST be applied here explicitly.
+        if (redisPassword != null && !redisPassword.isEmpty()) {
+            configuration.setPassword(RedisPassword.of(redisPassword));
+        }
         LettuceClientConfiguration clientConfig = LettucePoolingClientConfiguration.builder()
                 .commandTimeout(Duration.ofMillis(redisTimeout))
                 .poolConfig((GenericObjectPoolConfig<StatefulConnection<?, ?>>) buildPoolConfig())
