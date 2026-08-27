@@ -1,22 +1,33 @@
 // =============================================================================
-//  Jenkinsfile — leads-api (Spring Boot / verg). Multibranch.
+//  Jenkinsfile — leads-api (Spring Boot / verg).
 //
-//  Per branch:
+//  This repo uses per-env STANDALONE "Pipeline from SCM" jobs (e.g. oan-leads-staging
+//  checks out */staging and runs this file). Such jobs do NOT set env.BRANCH_NAME —
+//  that only exists for multibranch jobs — so the target env is driven by the
+//  DEPLOY_ENV build parameter the job supplies (default 'staging'). BRANCH_NAME is
+//  honoured too, so the same file still works if ever run as a multibranch job.
+//
+//  Per env (DEPLOY_ENV):
 //    staging -> build + push to ECR (oan/leads-api, ap-south-1) + ci/update-kustomize.sh
 //               (GitOps: bump the oan-kustomize `staging` overlay; ArgoCD on node 41 syncs)
 //    other   -> build + push to the LEGACY ECR (leads-a2c, us-west-2) — previous behaviour,
 //               no deploy step.
 //
-//  Tags:  <branch>-<build>   immutable, pinned by oan-kustomize
-//         <branch>-latest    moving alias (convenience)
+//  Tags:  <env>-<build>   immutable, pinned by oan-kustomize
+//         <env>-latest    moving alias (convenience)
 //
 //  Agent needs: docker(+buildx), aws cli v2, git, kustomize.
-//  Credentials: AWS_ACCOUNT_ID (string), oan-deployer (GitHub App, contents:write on
-//               oan-kustomize). ECR push uses the agent's ambient AWS identity, which must
-//               have ECR push on both oan/* (ap-south-1) and leads-a2c (us-west-2).
+//  Credentials: AWS_ACCOUNT_ID (string), aws-credentials (legacy path), oan-deployer
+//               (GitHub App, contents:write on oan-kustomize). Staging ECR push uses the
+//               agent's ambient AWS identity (must have ECR push on oan/*).
 // =============================================================================
 pipeline {
   agent any
+
+  parameters {
+    string(name: 'DEPLOY_ENV', defaultValue: 'staging',
+           description: 'Target env: staging (oan ECR + GitOps) or dev/main (legacy ECR, no deploy)')
+  }
 
   options {
     timestamps()
@@ -29,18 +40,24 @@ pipeline {
     stage('Resolve') {
       steps {
         script {
+          // Effective env: the DEPLOY_ENV parameter (how these standalone jobs are wired),
+          // falling back to BRANCH_NAME for a multibranch job, else 'dev'.
+          def envName = (params.DEPLOY_ENV?.trim()) ?: (env.BRANCH_NAME?.trim()) ?: 'dev'
+          env.DEPLOY_TARGET = envName
+          env.IS_STAGING = (envName == 'staging') ? 'true' : 'false'
+
           // staging -> the cluster's ECR (ap-south-1, oan/*). Everything else keeps the
           // legacy target so existing dev/main builds are unchanged.
-          if (env.BRANCH_NAME == 'staging') {
+          if (env.IS_STAGING == 'true') {
             env.AWS_REGION = 'ap-south-1'
             env.ECR_REPO   = 'oan/leads-api'
           } else {
             env.AWS_REGION = 'us-west-2'
             env.ECR_REPO   = 'leads-a2c'
           }
-          env.IMMUTABLE_TAG = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
-          env.MOVING_TAG    = "${env.BRANCH_NAME}-latest"
-          echo "branch=${env.BRANCH_NAME} region=${env.AWS_REGION} repo=${env.ECR_REPO} tag=${env.IMMUTABLE_TAG}"
+          env.IMMUTABLE_TAG = "${envName}-${env.BUILD_NUMBER}"
+          env.MOVING_TAG    = "${envName}-latest"
+          echo "env=${envName} staging=${env.IS_STAGING} region=${env.AWS_REGION} repo=${env.ECR_REPO} tag=${env.IMMUTABLE_TAG}"
         }
       }
     }
@@ -51,7 +68,7 @@ pipeline {
     // oan_a2c/registries. (If the buildkit CACHE grows on the shared agent, prune it with a
     // scoped `docker buildx prune -f` — never `docker system prune`, which wipes other jobs.)
     stage('Build & Push (staging → oan ECR)') {
-      when { branch 'staging' }
+      when { expression { env.IS_STAGING == 'true' } }
       steps {
         withCredentials([string(credentialsId: 'AWS_ACCOUNT_ID', variable: 'AWS_ACCOUNT_ID')]) {
           sh '''#!/usr/bin/env bash
@@ -79,7 +96,7 @@ pipeline {
     // only builds the registry URL (same account as staging); the push auth comes from the
     // aws-credentials binding.
     stage('Build & Push (legacy → leads-a2c)') {
-      when { not { branch 'staging' } }
+      when { expression { env.IS_STAGING != 'true' } }
       steps {
         withCredentials([
           string(credentialsId: 'AWS_ACCOUNT_ID', variable: 'AWS_ACCOUNT_ID'),
@@ -109,7 +126,7 @@ pipeline {
     // gitUsernamePassword mints a short-lived installation token. All kustomize logic
     // lives in ci/update-kustomize.sh.
     stage('staging → GitOps (ArgoCD@41)') {
-      when { branch 'staging' }
+      when { expression { env.IS_STAGING == 'true' } }
       steps {
         withCredentials([
           string(credentialsId: 'AWS_ACCOUNT_ID', variable: 'AWS_ACCOUNT_ID'),
@@ -128,7 +145,7 @@ pipeline {
   }
 
   post {
-    success { echo "OK  ${env.BRANCH_NAME} #${env.BUILD_NUMBER} -> ${env.IMMUTABLE_TAG}" }
-    failure { echo "FAIL ${env.BRANCH_NAME} #${env.BUILD_NUMBER}" }
+    success { echo "OK  ${env.DEPLOY_TARGET} #${env.BUILD_NUMBER} -> ${env.IMMUTABLE_TAG}" }
+    failure { echo "FAIL ${env.DEPLOY_TARGET} #${env.BUILD_NUMBER}" }
   }
 }
