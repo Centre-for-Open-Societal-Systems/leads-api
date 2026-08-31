@@ -8,7 +8,7 @@
 //  honoured too, so the same file still works if ever run as a multibranch job.
 //
 //  Per env (DEPLOY_ENV):
-//    staging -> build + push to ECR (oan/leads-api, ap-south-1) + ci/update-kustomize.sh
+//    staging -> build + push to ECR (oan/leads-api, ap-south-1) + ci/update-kustomize-ati.sh
 //               (GitOps: bump the oan-kustomize `staging` overlay; ArgoCD on node 41 syncs)
 //    other   -> build + push to the LEGACY ECR (leads-a2c, us-west-2) — previous behaviour,
 //               no deploy step.
@@ -124,7 +124,7 @@ pipeline {
     // staging -> GitOps: bump the oan-kustomize `staging` overlay to the new image.
     // Auth is the `oan-deployer` GitHub App (contents:write on oan-kustomize only);
     // gitUsernamePassword mints a short-lived installation token. All kustomize logic
-    // lives in ci/update-kustomize.sh.
+    // lives in ci/update-kustomize-ati.sh.
     stage('staging → GitOps (ArgoCD@41)') {
       when { expression { env.IS_STAGING == 'true' } }
       steps {
@@ -134,9 +134,9 @@ pipeline {
         ]) {
           sh '''#!/usr/bin/env bash
             set -euo pipefail
-            chmod +x ci/update-kustomize.sh
+            chmod +x ci/update-kustomize-ati.sh
             # args: <overlay> <kustomize image match-name> <new image ref>
-            ci/update-kustomize.sh staging leads-api \
+            ci/update-kustomize-ati.sh staging leads-api \
               "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMMUTABLE_TAG}"
           '''
         }
