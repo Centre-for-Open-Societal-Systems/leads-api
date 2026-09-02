@@ -13,7 +13,8 @@
 //    other   -> build + push to the LEGACY ECR (leads-a2c, us-west-2) — previous behaviour,
 //               no deploy step.
 //
-//  Tags:  <env>-<build>   immutable, pinned by oan-kustomize
+//  Tags:  <env>-<build>   immutable, pinned by oan-kustomize (staging uses a `staging-ati-`
+//                         prefix -> staging-ati-<build>, uniform with the other repos)
 //         <env>-latest    moving alias (convenience)
 //
 //  Agent needs: docker(+buildx), aws cli v2, git, kustomize.
@@ -55,8 +56,12 @@ pipeline {
             env.AWS_REGION = 'us-west-2'
             env.ECR_REPO   = 'leads-a2c'
           }
-          env.IMMUTABLE_TAG = "${envName}-${env.BUILD_NUMBER}"
-          env.MOVING_TAG    = "${envName}-latest"
+          // staging (the ATI/GitOps path) publishes under a `staging-ati-` prefix so the
+          // immutable tag reads staging-ati-<build>, uniform with the other repos. Non-staging
+          // (legacy dev/main) keeps its <env>- tag.
+          def tagPrefix     = (envName == 'staging') ? 'staging-ati' : envName
+          env.IMMUTABLE_TAG = "${tagPrefix}-${env.BUILD_NUMBER}"
+          env.MOVING_TAG    = "${tagPrefix}-latest"
           echo "env=${envName} staging=${env.IS_STAGING} region=${env.AWS_REGION} repo=${env.ECR_REPO} tag=${env.IMMUTABLE_TAG}"
         }
       }
