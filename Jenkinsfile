@@ -150,6 +150,11 @@ pipeline {
   }
 
   post {
+    // Bound the BuildKit cache so the shared agent's disk can't fill over many builds.
+    // The staging path uses `buildx --push` (nothing lands in `docker images` to rmi), but
+    // the build CACHE still accumulates in the separate BuildKit store. --max-used-space
+    // caps it at ~20GB (buildx v0.34+). Scoped to the build cache only.
+    always  { sh 'docker buildx prune -f --max-used-space=20GB 2>/dev/null || true' }
     success { echo "OK  ${env.DEPLOY_TARGET} #${env.BUILD_NUMBER} -> ${env.IMMUTABLE_TAG}" }
     failure { echo "FAIL ${env.DEPLOY_TARGET} #${env.BUILD_NUMBER}" }
   }
