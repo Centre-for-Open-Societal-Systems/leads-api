@@ -3,6 +3,8 @@
 #   --set externalDb.ip=10.0.x.x --set secrets.existingSecret=leads-secrets
 
 image:
+  # prod stays on the legacy repo until it moves to eoan/leads-api/leads-api
+  repository: 379220350808.dkr.ecr.us-west-2.amazonaws.com/leads-a2c
   tag: prod-latest
 
 autoUpdate:

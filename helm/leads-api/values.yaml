@@ -5,11 +5,11 @@
 replicaCount: 2
 
 image:
-  # Same registry/repo the Jenkinsfile pushes to
-  repository: 379220350808.dkr.ecr.us-west-2.amazonaws.com/leads-a2c
-  # Floating tag pushed by Jenkins on every build (<DEPLOY_ENV>-latest).
-  # For pinned deploys set this to the commit tag, e.g. dev-59d979e
-  tag: dev-latest
+  # OAN ECR (ap-south-1), same scheme as eoan/oan-a2c-service/a2c-service
+  repository: 379220350808.dkr.ecr.ap-south-1.amazonaws.com/eoan/leads-api/leads-api
+  # Moving alias pushed with every develop build.
+  # For pinned deploys use the immutable tag <version>-develop.<build>, e.g. 0.1.0-develop.12
+  tag: develop-latest
   # Optional: pin by digest (sha256:...). Overrides tag when set.
   digest: ""
   # Always pull so a restart picks up the newest floating tag

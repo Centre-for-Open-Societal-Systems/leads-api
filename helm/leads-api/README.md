@@ -1,6 +1,6 @@
 # leads-api Helm chart
 
-Deploys the Leads API Spring Boot app (image from ECR `leads-a2c`), with an optional
+Deploys the Leads API Spring Boot app (image from ECR `eoan/leads-api/leads-api`), with an optional
 in-cluster Redis, an external Postgres/Elasticsearch bridge, Kong routes with rate
 limiting, and automatic updates to the latest image.
 
@@ -21,8 +21,9 @@ helm upgrade --install leads-api ./helm/leads-api -n default \
 
 ## Keeping it on the latest image
 
-Jenkins pushes two tags per build: `<env>-latest` (moving) and `<env>-<BUILD_NUMBER>` (immutable).
-`dev`/`main` builds go to the legacy ECR `leads-a2c` (us-west-2), which is the chart default.
+Develop builds are published to `379220350808.dkr.ecr.ap-south-1.amazonaws.com/eoan/leads-api/leads-api`
+with two tags: `<version>-develop.<build>` (immutable, e.g. `0.1.0-develop.12`) and `develop-latest` (moving),
+the chart default. `values-prod.yaml` keeps prod on the legacy ECR `leads-a2c` (us-west-2, `prod-latest`).
 `staging` builds go to `oan/leads-api` in ap-south-1 with a `staging-ati-` prefix and are
 deployed by GitOps (oan-kustomize + ArgoCD); to point the chart there, set
 `image.repository=<acct>.dkr.ecr.ap-south-1.amazonaws.com/oan/leads-api` and `image.tag=staging-ati-latest`.
@@ -31,7 +32,7 @@ The chart supports three ways to follow new builds (`autoUpdate.mode`):
 
 | mode | how it works | needs |
 |------|--------------|-------|
-| `keel` (default) | Keel polls ECR every 2m; when the digest of `dev-latest` changes, it rolls the Deployment | Keel in the cluster (its pod needs ECR read access, e.g. the node role) |
+| `keel` (default) | Keel polls ECR every 2m; when the digest of `develop-latest` changes, it rolls the Deployment | Keel in the cluster (its pod needs ECR read access, e.g. the node role) |
 | `cronjob` | in-chart CronJob runs `kubectl rollout restart` on a schedule; `pullPolicy: Always` pulls the newest image | nothing extra; restarts even when the image hasn't changed |
 | `none` | CI deploys on push (below) | Jenkins access to the cluster |
 
@@ -40,7 +41,7 @@ Install Keel once:
 ```bash
 helm repo add keel https://charts.keel.sh
 helm upgrade --install keel keel/keel -n keel --create-namespace \
-  --set helmProvider.enabled=false --set aws.region=us-west-2
+  --set helmProvider.enabled=false --set aws.region=ap-south-1
 ```
 
 ### Push-based option (most traceable)
