@@ -1,0 +1,197 @@
+# ==========================================================
+# Leads API - default values
+# ==========================================================
+
+replicaCount: 2
+
+image:
+  # Same registry/repo the Jenkinsfile pushes to
+  repository: 379220350808.dkr.ecr.us-west-2.amazonaws.com/leads-a2c
+  # Floating tag pushed by Jenkins on every build (<DEPLOY_ENV>-latest).
+  # For pinned deploys set this to the commit tag, e.g. dev-59d979e
+  tag: dev-latest
+  # Optional: pin by digest (sha256:...). Overrides tag when set.
+  digest: ""
+  # Always pull so a restart picks up the newest floating tag
+  pullPolicy: Always
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# ----------------------------------------------------------
+# Auto-update: keep the running pods on the newest image
+# ----------------------------------------------------------
+autoUpdate:
+  # mode:
+  #   keel    - adds Keel annotations; Keel polls ECR for a new digest of
+  #             the floating tag and rolls the Deployment only on change.
+  #             Requires Keel installed in the cluster (recommended).
+  #   cronjob - in-chart CronJob runs `kubectl rollout restart` on a schedule.
+  #             No extra controller needed; with pullPolicy=Always the new
+  #             pods pull the latest image (restarts even if unchanged).
+  #   none    - no auto-update (use `helm upgrade --set image.tag=...` from CI)
+  mode: keel
+  keel:
+    pollSchedule: "@every 2m"
+    approvals: 0
+  cronjob:
+    schedule: "*/15 * * * *"
+    # Official image; distroless (no shell), so the CronJob calls kubectl directly
+    image: registry.k8s.io/kubectl:v1.31.0
+    resources:
+      requests: { cpu: 10m, memory: 32Mi }
+      limits: { cpu: 100m, memory: 128Mi }
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # e.g. eks.amazonaws.com/role-arn: arn:aws:iam::<acct>:role/leads-api
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+securityContext: {}
+
+containerPort: 8080
+
+service:
+  type: ClusterIP
+  port: 80
+
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 0
+    maxSurge: 1
+
+resources:
+  requests:
+    memory: 512Mi
+    cpu: 250m
+  limits:
+    memory: 2Gi
+    cpu: 1000m
+
+readinessProbe:
+  tcpSocket:
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  failureThreshold: 5
+
+livenessProbe:
+  tcpSocket:
+    port: http
+  initialDelaySeconds: 60
+  periodSeconds: 20
+  failureThreshold: 3
+
+# JVM options (container-aware heap sizing)
+javaOpts: "-XX:MaxRAMPercentage=75.0"
+
+# ----------------------------------------------------------
+# Application configuration (-> ConfigMap, env vars).
+# Spring relaxed binding maps these onto application.properties.
+# ----------------------------------------------------------
+config:
+  SPRING_DATASOURCE_URL: "jdbc:postgresql://leads-postgres:5432/leads_db"
+  SPRING_REDIS_HOST: ""          # empty => in-chart redis service name
+  SPRING_REDIS_PORT: "6379"
+  ELASTICSEARCH_HOST: "leads-elasticsearch"
+  ELASTICSEARCH_PORT: "9200"
+  SPRING_JPA_SHOW_SQL: "false"
+  A2C_WEBHOOK_INITIATE_URL: ""
+  A2C_WEBHOOK_INITIATE_ENABLED: "false"
+
+# Extra env vars (list of k8s EnvVar)
+extraEnv: []
+
+# ----------------------------------------------------------
+# Secrets
+# ----------------------------------------------------------
+secrets:
+  # Use an existing Secret instead of creating one (recommended in prod).
+  # Must contain the keys listed under `values` below.
+  existingSecret: ""
+  values:
+    SPRING_DATASOURCE_USERNAME: ""
+    SPRING_DATASOURCE_PASSWORD: ""
+    ELASTICSEARCH_USERNAME: ""
+    ELASTICSEARCH_PASSWORD: ""
+    A2C_WEBHOOK_API_KEY: ""
+    A2C_WEBHOOK_API_SECRET: ""
+    # Read by RedisConfig as spring.redis.password; leave empty for passwordless Redis.
+    # With redis.auth.enabled=true the in-chart Redis uses this key for --requirepass.
+    SPRING_REDIS_PASSWORD: ""
+
+# ----------------------------------------------------------
+# In-cluster Redis (ephemeral cache, mirrors terra/prod/k8/02-redis.yaml)
+# ----------------------------------------------------------
+redis:
+  enabled: true
+  image: redis:7-alpine
+  args: ["redis-server", "--appendonly", "yes"]
+  auth:
+    # Start redis with --requirepass from the SPRING_REDIS_PASSWORD key of the app Secret
+    # (chart-managed or secrets.existingSecret), so the app and redis share one password.
+    enabled: false
+  resources:
+    requests: { memory: 64Mi, cpu: 100m }
+    limits: { memory: 128Mi, cpu: 200m }
+
+# ----------------------------------------------------------
+# External Postgres / Elasticsearch on a private EC2
+# (mirrors terra/prod/k8/03-db-external.yaml.tpl)
+# ----------------------------------------------------------
+externalDb:
+  enabled: false
+  ip: ""                 # private IP of DB EC2
+  postgres:
+    serviceName: leads-postgres
+    port: 5432
+  elasticsearch:
+    serviceName: leads-elasticsearch
+    port: 9200
+
+# ----------------------------------------------------------
+# Kong routing (mirrors terra/prod/k8/06-kong-to-app.yaml)
+# ----------------------------------------------------------
+kong:
+  enabled: false
+  ingressClassName: kong
+  host: ""
+  rateLimit:
+    enabled: true
+    path: /leads/v1/initiate
+    minute: 5
+    limitBy: ip
+    policy: local
+
+# Generic ingress (use instead of kong if preferred)
+ingress:
+  enabled: false
+  className: nginx
+  annotations: {}
+  hosts:
+    - host: leads.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 75
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

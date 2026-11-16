@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "leads-api.fullname" . }}-config
+  labels:
+    {{- include "leads-api.labels" . | nindent 4 }}
+data:
+  {{- range $k, $v := .Values.config }}
+  {{- if and (eq $k "SPRING_REDIS_HOST") (not $v) }}
+  {{ $k }}: {{ include "leads-api.redisName" $ | quote }}
+  {{- else }}
+  {{ $k }}: {{ $v | toString | quote }}
+  {{- end }}
+  {{- end }}

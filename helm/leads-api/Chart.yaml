@@ -1,0 +1,12 @@
+apiVersion: v2
+name: leads-api
+description: Helm chart for the Leads API (Spring Boot) - Centre-for-Open-Societal-Systems/leads-api
+type: application
+version: 0.1.0
+appVersion: "dev-latest"
+keywords:
+  - leads
+  - spring-boot
+home: https://github.com/Centre-for-Open-Societal-Systems/leads-api
+sources:
+  - https://github.com/Centre-for-Open-Societal-Systems/leads-api

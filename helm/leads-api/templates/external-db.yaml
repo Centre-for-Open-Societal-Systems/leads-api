@@ -1,0 +1,30 @@
+{{- if .Values.externalDb.enabled }}
+{{- if not .Values.externalDb.ip }}
+{{- fail "externalDb.ip is required when externalDb.enabled=true" }}
+{{- end }}
+{{- range $svc := list .Values.externalDb.postgres .Values.externalDb.elasticsearch }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $svc.serviceName }}
+  labels:
+    {{- include "leads-api.labels" $ | nindent 4 }}
+spec:
+  ports:
+    - port: {{ $svc.port }}
+      targetPort: {{ $svc.port }}
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: {{ $svc.serviceName }}
+  labels:
+    {{- include "leads-api.labels" $ | nindent 4 }}
+subsets:
+  - addresses:
+      - ip: {{ $.Values.externalDb.ip }}
+    ports:
+      - port: {{ $svc.port }}
+{{- end }}
+{{- end }}
