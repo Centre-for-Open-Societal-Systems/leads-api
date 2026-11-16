@@ -10,24 +10,36 @@
 //  Per env (DEPLOY_ENV):
 //    staging -> build + push to ECR (oan/leads-api, ap-south-1) + ci/update-kustomize-ati.sh
 //               (GitOps: bump the oan-kustomize `staging` overlay; ArgoCD on node 41 syncs)
+//    dev     -> build + push to ECR (eoan/leads-api/leads-api, ap-south-1), no deploy step;
+//               oan-helm chart oan-leads-api pins the published digest. The repo is
+//               created on the first push if missing (as in oan_a2c).
 //    other   -> build + push to the LEGACY ECR (leads-a2c, us-west-2) — previous behaviour,
 //               no deploy step.
 //
-//  Tags:  <env>-<build>   immutable, pinned by oan-kustomize (staging uses a `staging-ati-`
-//                         prefix -> staging-ati-<build>, uniform with the other repos)
-//         <env>-latest    moving alias (convenience)
+//  Tags:  staging: staging-ati-<build>             immutable, pinned by oan-kustomize
+//         dev:     <APP_VERSION>-develop.<build>   immutable, e.g. 0.1.0-develop.12; the same
+//                                                  scheme as eoan/oan-a2c-service/a2c-service
+//         other:   <env>-<build>                   immutable
+//         <env>-latest / develop-latest            moving alias (convenience)
 //
 //  Agent needs: docker(+buildx), aws cli v2, git, kustomize.
 //  Credentials: AWS_ACCOUNT_ID (string), aws-credentials (legacy path), oan-deployer
-//               (GitHub App, contents:write on oan-kustomize). Staging ECR push uses the
-//               agent's ambient AWS identity (must have ECR push on oan/*).
+//               (GitHub App, contents:write on oan-kustomize). Staging and dev ECR pushes use
+//               the agent's ambient AWS identity (must have ECR push on oan/leads-api and
+//               eoan/leads-api/leads-api, plus ecr:CreateRepository for the first dev push).
 // =============================================================================
 pipeline {
   agent any
 
   parameters {
     string(name: 'DEPLOY_ENV', defaultValue: 'staging',
-           description: 'Target env: staging (oan ECR + GitOps) or dev/main (legacy ECR, no deploy)')
+           description: 'Target env: staging (oan ECR + GitOps), dev (eoan ECR, no deploy) or main (legacy ECR, no deploy)')
+  }
+
+  environment {
+    // Version part of the dev image tag (<APP_VERSION>-develop.<build>). Bump it with the
+    // oan-helm chart's appVersion when the API version changes.
+    APP_VERSION = '0.1.0'
   }
 
   options {
@@ -46,23 +58,34 @@ pipeline {
           def envName = (params.DEPLOY_ENV?.trim()) ?: (env.BRANCH_NAME?.trim()) ?: 'dev'
           env.DEPLOY_TARGET = envName
           env.IS_STAGING = (envName == 'staging') ? 'true' : 'false'
+          env.IS_DEV     = (envName in ['dev', 'develop']) ? 'true' : 'false'
 
-          // staging -> the cluster's ECR (ap-south-1, oan/*). Everything else keeps the
-          // legacy target so existing dev/main builds are unchanged.
+          // staging -> the cluster's ECR (ap-south-1, oan/*). dev -> the OAN ECR
+          // (ap-south-1, eoan/*). Everything else keeps the legacy target, so main builds
+          // are unchanged.
           if (env.IS_STAGING == 'true') {
             env.AWS_REGION = 'ap-south-1'
             env.ECR_REPO   = 'oan/leads-api'
+          } else if (env.IS_DEV == 'true') {
+            env.AWS_REGION = 'ap-south-1'
+            env.ECR_REPO   = 'eoan/leads-api/leads-api'
           } else {
             env.AWS_REGION = 'us-west-2'
             env.ECR_REPO   = 'leads-a2c'
           }
           // staging (the ATI/GitOps path) publishes under a `staging-ati-` prefix so the
-          // immutable tag reads staging-ati-<build>, uniform with the other repos. Non-staging
-          // (legacy dev/main) keeps its <env>- tag.
-          def tagPrefix     = (envName == 'staging') ? 'staging-ati' : envName
-          env.IMMUTABLE_TAG = "${tagPrefix}-${env.BUILD_NUMBER}"
-          env.MOVING_TAG    = "${tagPrefix}-latest"
-          echo "env=${envName} staging=${env.IS_STAGING} region=${env.AWS_REGION} repo=${env.ECR_REPO} tag=${env.IMMUTABLE_TAG}"
+          // immutable tag reads staging-ati-<build>, uniform with the other repos. dev reads
+          // <APP_VERSION>-develop.<build> + develop-latest, like eoan/oan-a2c-service. Legacy
+          // (main) keeps its <env>- tag.
+          if (env.IS_DEV == 'true') {
+            env.IMMUTABLE_TAG = "${env.APP_VERSION}-develop.${env.BUILD_NUMBER}"
+            env.MOVING_TAG    = 'develop-latest'
+          } else {
+            def tagPrefix     = (envName == 'staging') ? 'staging-ati' : envName
+            env.IMMUTABLE_TAG = "${tagPrefix}-${env.BUILD_NUMBER}"
+            env.MOVING_TAG    = "${tagPrefix}-latest"
+          }
+          echo "env=${envName} staging=${env.IS_STAGING} dev=${env.IS_DEV} region=${env.AWS_REGION} repo=${env.ECR_REPO} tag=${env.IMMUTABLE_TAG}"
         }
       }
     }
@@ -95,13 +118,45 @@ pipeline {
       }
     }
 
-    // dev / main -> UNCHANGED legacy behaviour: `docker build` + push to the legacy ECR
-    // (leads-a2c, us-west-2) using the existing `aws-credentials`. `docker build` loads the
-    // image into the local store, so it IS removed afterwards (docker rmi). AWS_ACCOUNT_ID
-    // only builds the registry URL (same account as staging); the push auth comes from the
-    // aws-credentials binding.
+    // dev -> the OAN ECR (eoan/leads-api/leads-api, ap-south-1), pulled by the oan-helm chart
+    // oan-leads-api by digest. Same auth and buildx --push as staging. The repo is created
+    // on the first push if it does not exist yet (scan on push, like the oan_a2c pipeline).
+    stage('Build & Push (dev → eoan ECR)') {
+      when { expression { env.IS_DEV == 'true' } }
+      steps {
+        withCredentials([string(credentialsId: 'AWS_ACCOUNT_ID', variable: 'AWS_ACCOUNT_ID')]) {
+          sh '''#!/usr/bin/env bash
+            set -euo pipefail
+            REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+            IMAGE_URI="${REGISTRY}/${ECR_REPO}"
+
+            aws ecr describe-repositories --region "${AWS_REGION}" --repository-names "${ECR_REPO}" >/dev/null 2>&1 \
+              || aws ecr create-repository --region "${AWS_REGION}" --repository-name "${ECR_REPO}" \
+                   --image-scanning-configuration scanOnPush=true >/dev/null
+
+            aws ecr get-login-password --region "${AWS_REGION}" \
+              | docker login --username AWS --password-stdin "${REGISTRY}"
+
+            DOCKER_BUILDKIT=1 docker buildx build \
+              --tag "${IMAGE_URI}:${IMMUTABLE_TAG}" \
+              --tag "${IMAGE_URI}:${MOVING_TAG}" \
+              --file Dockerfile \
+              --push .
+            DIGEST=$(aws ecr describe-images --region "${AWS_REGION}" --repository-name "${ECR_REPO}" \
+              --image-ids imageTag="${IMMUTABLE_TAG}" --query 'imageDetails[0].imageDigest' --output text)
+            echo "Pushed ${IMAGE_URI}:${IMMUTABLE_TAG} (+ ${MOVING_TAG}) digest ${DIGEST}"
+          '''
+        }
+      }
+    }
+
+    // main (and any other env) -> UNCHANGED legacy behaviour: `docker build` + push to the
+    // legacy ECR (leads-a2c, us-west-2) using the existing `aws-credentials`. `docker build`
+    // loads the image into the local store, so it IS removed afterwards (docker rmi).
+    // AWS_ACCOUNT_ID only builds the registry URL (same account as staging); the push auth
+    // comes from the aws-credentials binding.
     stage('Build & Push (legacy → leads-a2c)') {
-      when { expression { env.IS_STAGING != 'true' } }
+      when { expression { env.IS_STAGING != 'true' && env.IS_DEV != 'true' } }
       steps {
         withCredentials([
           string(credentialsId: 'AWS_ACCOUNT_ID', variable: 'AWS_ACCOUNT_ID'),
