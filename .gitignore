@@ -49,6 +49,7 @@ logs/
 ### Environment ###
 .env
 .env.*
+__pycache__/
 
 ### Test Output ###
 tests/output/
@@ -105,3 +106,7 @@ terra/dev/
 
 #test tools
 tools/
+
+
+oan_grievance_ivr_collection.json
+oan_grievance_ivr_dev.postman_environment.json

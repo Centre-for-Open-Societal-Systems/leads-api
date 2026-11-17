@@ -210,7 +210,7 @@ docker run -d \
   -e ELASTICSEARCH_USERNAME="${es_username}" \
   -e ELASTICSEARCH_PASSWORD="${es_password}" \
   -e A2C_WEBHOOK_INITIATE_URL="${a2c_webhook_url}" \
-  -e A2C_WEBHOOK_INITIATE_ENABLED="${a2c_webhook_enabled}" \
+  -e LEADS_WEBHOOK_ENABLED="${a2c_webhook_enabled}" \
   -e A2C_WEBHOOK_API_KEY="${a2c_webhook_api_key}" \
   -e A2C_WEBHOOK_API_SECRET="${a2c_webhook_api_secret}" \
   -p 8080:8080 \

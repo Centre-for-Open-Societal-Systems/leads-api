@@ -10,7 +10,13 @@ public class Constants{
     public static final String DISQUALIFIED = "DISQUALIFIED";
     public static final String PROCESSED = "PROCESSED";
     public static final String REJECTED = "REJECTED";
-    
+    public static final String DELETED = "DELETED";
+
+    // Document field names added on read (status + Postgres timestamps)
+    public static final String STATUS = "status";
+    public static final String CREATED_ON = "createdOn";
+    public static final String UPDATED_ON = "updatedOn";
+
     public static final String SUCCESSFULLY_CREATED = "successfully created";
     public static final String SUCCESSFULLY_UPDATED = "successfully updated";
     public static final String SUCCESSFULLY_DELETED = "successfully deleted";

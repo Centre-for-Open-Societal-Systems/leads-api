@@ -23,13 +23,12 @@ import com.registry.verg.core.util.PhoneNumberLookupUtil;
 import com.registry.verg.leads.entity.LeadsEntity;
 import com.registry.verg.leads.repository.LeadsRepository;
 import com.registry.verg.leads.service.LeadsService;
-import com.registry.verg.core.service.OutboundRequestHandlerServiceImpl;
+import com.registry.verg.core.service.WebhookService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.HttpStatus;
@@ -70,21 +69,23 @@ public class LeadsServiceImpl implements LeadsService {
     private VergProperties vergProperties;
 
     @Autowired
-    private OutboundRequestHandlerServiceImpl outboundRequestHandler;
+    private WebhookService webhookService;
 
     @Autowired
     private PhoneNumberLookupUtil phoneNumberLookupUtil;
 
+    private static final String CATALOGUE_NAME = "leads";
+
     private Logger logger = LoggerFactory.getLogger(LeadsServiceImpl.class);
 
-    @Value("${spring.redis.cacheTtl}")
+    @Value("${search.result.redis.ttl:3600}")
     private long searchResultRedisTtl;
 
     @Value("${a2c.webhook.initiate.url}")
     private String a2cwebhookInitiateUrl;
 
-    @Value("${a2c.webhook.initiate.enabled}")
-    private boolean a2cwebhookInitiateEnabled;
+    @Value("${leads.webhook.enabled}")
+    private boolean leadsWebhookEnabled;
 
     @Value("${a2c.webhook.api-key}")
     private String a2cWebhookApiKey;
@@ -143,7 +144,7 @@ public class LeadsServiceImpl implements LeadsService {
         CustomResponse response = new CustomResponse();
         SearchResult searchResult = redisTemplate.opsForValue()
                 .get(generateRedisJwtTokenKey(searchCriteria));
-        if (searchResult != null) {
+        if (searchResult != null && !Boolean.TRUE.equals(searchCriteria.getOverrideCache())) {
             log.info("LeadsServiceImpl::searchLeads: leads search result fetched from redis");
             response.getResult().put(Constants.RESULT, searchResult);
             createSuccessResponse(response);
@@ -157,16 +158,17 @@ public class LeadsServiceImpl implements LeadsService {
             return response;
         }
         try {
+            log.info("LeadsServiceImpl::searchLeads: leads search result fetched from ES");
             searchResult = esUtilService.searchDocuments(Constants.LEADS_INDEX_NAME, searchCriteria);
             response.getResult().put(Constants.RESULT, searchResult);
             createSuccessResponse(response);
+            redisTemplate.opsForValue()
+                    .set(generateRedisJwtTokenKey(searchCriteria), searchResult, searchResultRedisTtl,
+                            TimeUnit.SECONDS);
             return response;
         } catch (Exception e) {
             createErrorResponse(response, e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR,
                     Constants.FAILED_CONST);
-            redisTemplate.opsForValue()
-                    .set(generateRedisJwtTokenKey(searchCriteria), searchResult, searchResultRedisTtl,
-                            TimeUnit.SECONDS);
             return response;
         }
     }
@@ -185,6 +187,7 @@ public class LeadsServiceImpl implements LeadsService {
             response.setMessage(Constants.ID_NOT_FOUND);
             return response;
         }
+        primaryKeyUtil.validateKey(Constants.LEADS_VALIDATION_FILE_JSON, id);
         try {
             String cachedJson = cacheService.getCache(id);
             if (StringUtils.isNotEmpty(cachedJson)) {
@@ -198,14 +201,16 @@ public class LeadsServiceImpl implements LeadsService {
                 Optional<LeadsEntity> entityOptional = leadsRepository.findById(id);
                 if (entityOptional.isPresent()) {
                     LeadsEntity leadsEntity = entityOptional.get();
-                    cacheService.putCache(id, leadsEntity.getData());
+                    ObjectNode jsonNode = buildDocument(leadsEntity.getData(), leadsEntity.getStatus(),
+                            leadsEntity.getCreatedOn(), leadsEntity.getUpdatedOn());
+                    cacheService.putCache(id, jsonNode);
                     log.info("LeadsServiceImpl::read:Record coming from postgres db");
                     response.setMessage(Constants.SUCCESSFULLY_READING);
                     response
                             .getResult()
                             .put(Constants.RESULT,
                                     objectMapper.convertValue(
-                                            leadsEntity.getData(), new TypeReference<Object>() {
+                                            jsonNode, new TypeReference<Object>() {
                                             }));
                 } else {
                     response.setResponseCode(HttpStatus.NOT_FOUND);
@@ -224,31 +229,44 @@ public class LeadsServiceImpl implements LeadsService {
         log.info("LeadsServiceImpl::deleteLead:entered the method: " + id);
         CustomResponse response = new CustomResponse();
         if (StringUtils.isEmpty(id)) {
-            response.setResponseCode(HttpStatus.INTERNAL_SERVER_ERROR);
+            log.warn("LeadsServiceImpl::deleteLead:id is null or empty");
+            response.setResponseCode(HttpStatus.BAD_REQUEST);
             response.setMessage(Constants.ID_NOT_FOUND);
             return response;
         }
         try {
-            // 1. Verify existence and delete from Postgres
+            // 1. Verify existence
             Optional<LeadsEntity> entityOptional = leadsRepository.findById(id);
-            if (entityOptional.isPresent()) {
-                LeadsEntity leadsEntity = entityOptional.get();
-                leadsRepository.delete(leadsEntity);
-                log.info("LeadsServiceImpl::deleteLead:Deleted from Postgres");
-
-                // Remove phone number mapping if it exists
-                if (leadsEntity.getData() != null && leadsEntity.getData().has("phone_number")) {
-                    String phoneNumber = leadsEntity.getData().get("phone_number").asText();
-                    if (StringUtils.isNotEmpty(phoneNumber)) {
-                        cacheService.deleteCache("phone:" + phoneNumber);
-                        log.info("LeadsServiceImpl::deleteLead:Deleted phone number mapping from Redis");
-                    }
-                }
-            } else {
+            if (entityOptional.isEmpty()) {
                 log.warn("LeadsServiceImpl::deleteLead:Lead not found in Postgres DB with id: " + id);
                 response.setResponseCode(HttpStatus.NOT_FOUND);
                 response.setMessage(Constants.INVALID_ID);
                 return response;
+            }
+
+            LeadsEntity leadsEntity = entityOptional.get();
+
+            // Check if the lead is already deleted
+            if (Constants.DELETED.equals(leadsEntity.getStatus())) {
+                log.warn("LeadsServiceImpl::deleteLead:record already deleted for id: {}", id);
+                response.setResponseCode(HttpStatus.BAD_REQUEST);
+                response.setMessage("Record is already deleted");
+                return response;
+            }
+
+            // Soft delete: mark the status DELETED and set updatedOn timestamp
+            leadsEntity.setStatus(Constants.DELETED);
+            leadsEntity.setUpdatedOn(new Timestamp(System.currentTimeMillis()));
+            leadsRepository.save(leadsEntity);
+            log.info("LeadsServiceImpl::deleteLead:soft deleted record in postgres for id: {}", id);
+
+            // Remove phone number mapping if it exists, so a new call from this number creates a new lead
+            if (leadsEntity.getData() != null && leadsEntity.getData().has("phone_number")) {
+                String phoneNumber = leadsEntity.getData().get("phone_number").asText();
+                if (StringUtils.isNotEmpty(phoneNumber)) {
+                    cacheService.deleteCache("phone:" + phoneNumber);
+                    log.info("LeadsServiceImpl::deleteLead:Deleted phone number mapping from Redis");
+                }
             }
 
             // 2. Delete from Elasticsearch
@@ -334,10 +352,12 @@ public class LeadsServiceImpl implements LeadsService {
             log.info("LeadsServiceImpl::initiateLead::persisted leads in Verg");
 
             // Fire webhook asynchronously after all persistence is complete
-            if (a2cwebhookInitiateEnabled && StringUtils.isNotEmpty(a2cwebhookInitiateUrl)) {
-                Map<String, Object> webhookPayload = new HashMap<>(map);
-                webhookPayload.put("external_ref_id", primaryID);
-                sendToWebhookAsync(a2cwebhookInitiateUrl, webhookPayload);
+            if (leadsWebhookEnabled) {
+                if (StringUtils.isNotEmpty(a2cwebhookInitiateUrl)){
+                    Map<String, Object> webhookPayload = new HashMap<>(map);
+                    webhookPayload.put("external_ref_id", primaryID);
+                    webhookService.sendToWebhookAsync(a2cwebhookInitiateUrl, webhookPayload, a2cWebhookHeaders());
+                }
             }
 
             return response;
@@ -358,9 +378,9 @@ public class LeadsServiceImpl implements LeadsService {
 
         log.debug("LeadsServiceImpl::updateLead:validated the payload");
 
-        // 1. Find existing lead by ID
+        // 1. Find existing lead by ID (a soft-deleted lead counts as not found)
         Optional<LeadsEntity> entityOptional = leadsRepository.findById(leadsId);
-        if (entityOptional.isEmpty()) {
+        if (entityOptional.isEmpty() || Constants.DELETED.equals(entityOptional.get().getStatus())) {
             throw new CustomException("Lead not found",
                     "No lead found with id: " + leadsId,
                     HttpStatus.NOT_FOUND);
@@ -402,10 +422,10 @@ public class LeadsServiceImpl implements LeadsService {
             log.info("LeadsServiceImpl::updateLead::updated lead in Verg");
 
             // 7. Fire webhook asynchronously
-            if (a2cwebhookInitiateEnabled && StringUtils.isNotEmpty(a2cwebhookInitiateUrl)) {
+            if (leadsWebhookEnabled && StringUtils.isNotEmpty(a2cwebhookInitiateUrl)) {
                 Map<String, Object> webhookPayload = new HashMap<>(map);
                 webhookPayload.put("external_ref_id", leadsId);
-                sendToWebhookAsync(a2cwebhookInitiateUrl, webhookPayload);
+                webhookService.sendToWebhookAsync(a2cwebhookInitiateUrl, webhookPayload, a2cWebhookHeaders());
             }
 
             return response;
@@ -557,6 +577,25 @@ public class LeadsServiceImpl implements LeadsService {
         }
     }
 
+    /**
+     * Builds the projection stored in Redis (and returned by read): the payload plus the
+     * status and the Postgres createdOn/updatedOn timestamps (ISO-8601).
+     */
+    private ObjectNode buildDocument(JsonNode data, String status, Timestamp createdOn, Timestamp updatedOn) {
+        ObjectNode node = objectMapper.createObjectNode();
+        if (data != null && data.isObject()) {
+            node.setAll((ObjectNode) data);
+        }
+        node.put(Constants.STATUS, status);
+        if (createdOn != null) {
+            node.put(Constants.CREATED_ON, createdOn.toInstant().toString());
+        }
+        if (updatedOn != null) {
+            node.put(Constants.UPDATED_ON, updatedOn.toInstant().toString());
+        }
+        return node;
+    }
+
     public void createSuccessResponse(CustomResponse response) {
         response.setParams(new RespParam());
         response.getParams().setStatus(Constants.SUCCESS);
@@ -566,7 +605,7 @@ public class LeadsServiceImpl implements LeadsService {
     public String generateRedisJwtTokenKey(Object requestPayload) {
         if (requestPayload != null) {
             try {
-                String reqJsonString = objectMapper.writeValueAsString(requestPayload);
+                String reqJsonString = objectMapper.writeValueAsString(requestPayload) + CATALOGUE_NAME;
                 return JWT.create()
                         .withClaim(Constants.REQUEST_PAYLOAD, reqJsonString)
                         .sign(Algorithm.HMAC256(Constants.JWT_SECRET_KEY));
@@ -585,16 +624,9 @@ public class LeadsServiceImpl implements LeadsService {
         response.setResponseCode(httpStatus);
     }
 
-    @Async
-    public void sendToWebhookAsync(String url, Map<String, Object> payload) {
-        try {
-            log.info("LeadsServiceImpl::sendToWebhookAsync::sending lead data to webhook: {}", url);
-            Map<String, String> headers = new HashMap<>();
-            headers.put("Authorization", "token " + a2cWebhookApiKey + ":" + a2cWebhookApiSecret);
-            Object result = outboundRequestHandler.fetchResultUsingPost(url, payload, headers);
-            log.info("LeadsServiceImpl::sendToWebhookAsync::webhook response received: {}", result);
-        } catch (Exception e) {
-            log.error("LeadsServiceImpl::sendToWebhookAsync::failed to send webhook: {}", e.getMessage(), e);
-        }
+    private Map<String, String> a2cWebhookHeaders() {
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Authorization", "token " + a2cWebhookApiKey + ":" + a2cWebhookApiSecret);
+        return headers;
     }
 }

@@ -32,4 +32,10 @@ public class {{service_name_pascal}}Controller {
         CustomResponse response = {{service_name_camel}}Service.read(id);
         return new ResponseEntity<>(response, HttpStatus.OK);
     }
+
+    @DeleteMapping("/v1/delete/{id}")
+    public ResponseEntity<?> delete(@PathVariable String id) {
+        CustomResponse response = {{service_name_camel}}Service.delete(id);
+        return new ResponseEntity<>(response, response.getResponseCode());
+    }
 }
