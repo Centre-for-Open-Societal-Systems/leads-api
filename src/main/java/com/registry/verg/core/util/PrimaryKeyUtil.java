@@ -3,9 +3,11 @@ package com.registry.verg.core.util;
 import com.datastax.oss.driver.api.core.uuid.Uuids;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.registry.verg.core.exception.CustomException;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
 import java.io.InputStream;
@@ -31,6 +33,23 @@ public class PrimaryKeyUtil {
         } else {
             log.info("PrimaryKeyUtil::generateKey::no prefix found, falling back to UUID");
             return String.valueOf(idUuid);
+        }
+    }
+
+    /**
+     * Rejects an id whose prefix does not match the primary-key prefix declared in the schema.
+     * No-op when the schema declares no prefix, since those ids are time-based UUIDs.
+     */
+    public void validateKey(String fileName, String id) {
+        String prefix = extractPrefixFromSchema(fileName);
+        if (prefix == null) {
+            log.debug("PrimaryKeyUtil::validateKey::no prefix declared in schema: {}, skipping", fileName);
+            return;
+        }
+        if (id == null || !id.startsWith(prefix)) {
+            log.warn("PrimaryKeyUtil::validateKey::id {} does not match prefix {} from schema {}", id, prefix, fileName);
+            throw new CustomException(Constants.ERROR,
+                    Constants.INVALID_ID + ": expected prefix '" + prefix + "'", HttpStatus.BAD_REQUEST);
         }
     }
 
