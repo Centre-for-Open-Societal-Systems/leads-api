@@ -1,0 +1,101 @@
+{{- $name := printf "%s-lead-service" (include "telephony.fullname" .) }}
+{{- $selector := dict "root" . "component" "lead-service" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "telephony.labels" . | nindent 4 }}
+    app.kubernetes.io/component: lead-service
+spec:
+  replicas: {{ .Values.leadService.replicas }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "telephony.selectorLabels" $selector | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ toJson (list .Values.leadService .Values.leadRegistry) | sha256sum }}
+        {{- if .Values.secret.create }}
+        checksum/secret: {{ toJson .Values.secret.values | sha256sum }}
+        {{- end }}
+      labels:
+        {{- include "telephony.selectorLabels" $selector | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      {{- include "telephony.pullSecrets" . | nindent 6 }}
+      containers:
+        - name: lead-service
+          image: {{ include "telephony.image" (dict "registry" .Values.registry "image" .Values.leadService.image) | quote }}
+          imagePullPolicy: {{ .Values.leadService.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: DB_URL
+              value: {{ include "telephony.dbUrl" . | quote }}
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "telephony.secretName" . }}
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "telephony.secretName" . }}
+                  key: DB_PASSWORD
+            - name: AMI_ENABLED
+              value: "false"
+            - name: LEAD_CONTEXT
+              value: {{ .Values.leadService.leadContext | quote }}
+            # The dependency on the Leads API: every call lead is posted here.
+            - name: LEAD_REGISTRY_URL
+              value: {{ include "telephony.leadRegistryUrl" . | quote }}
+            - name: LEAD_REGISTRY_API_KEY_HEADER
+              value: {{ .Values.leadRegistry.apiKeyHeader | quote }}
+            - name: LEAD_REGISTRY_API_KEY_VALUE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "telephony.secretName" . }}
+                  key: LEAD_REGISTRY_API_KEY_VALUE
+                  optional: true
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.leadService.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "telephony.labels" . | nindent 4 }}
+    app.kubernetes.io/component: lead-service
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "telephony.selectorLabels" $selector | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP

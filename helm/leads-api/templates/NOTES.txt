@@ -12,3 +12,13 @@ Auto-update mode: {{ .Values.autoUpdate.mode }}
 Port-forward to test:
   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "leads-api.fullname" . }} 8080:{{ .Values.service.port }}
   open http://localhost:8080/swagger-ui/index.html
+{{- if .Values.ecrPullSecret.enabled }}
+
+Image pull: {{ .Values.ecrPullSecret.name }} is written by the release (hook Job + CronJob {{ .Values.ecrPullSecret.schedule | quote }}) for {{ include "leads-api.ecrRegistries" . }}
+{{- end }}
+{{- if .Values.telephony.enabled }}
+
+Telephony: {{ .Release.Name }}-telephony-{lead-service,event-publisher{{ if .Values.telephony.freeswitch.enabled }},freeswitch{{ end }},db}
+  Secret: {{ .Values.telephony.secret.name }} (DB_USER, DB_PASSWORD, ESL_PASSWORD)
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ .Release.Name }}-telephony-lead-service
+{{- end }}

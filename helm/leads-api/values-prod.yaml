@@ -26,3 +26,8 @@ externalDb:
 
 kong:
   enabled: true
+
+# Prod runs in `default` behind Kong; telephony (FreeSWITCH on the host network) is
+# installed only where it is wanted. Enable with --set telephony.enabled=true.
+telephony:
+  enabled: false

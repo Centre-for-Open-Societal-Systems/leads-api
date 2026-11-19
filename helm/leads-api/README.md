@@ -19,6 +19,50 @@ helm upgrade --install leads-api ./helm/leads-api -n default \
   -f helm/leads-api/values-prod.yaml --set externalDb.ip=<db-private-ip>
 ```
 
+
+## Telephony (lead capture by phone)
+
+The chart bundles [Telephony-Service](https://github.com/A5HW1NRA7AN/Telephony-Service/tree/freeswitch-kubernetes)
+(branch `freeswitch-kubernetes`, build 23) as the source subchart `charts/telephony`
+(`telephony.enabled`, on by default; off in `values-prod.yaml`). One release installs both
+in the same namespace (`leads`):
+
+```
+caller -> SIP trunk -> freeswitch (greeting) -> ESL -> event-publisher
+       -> lead-service (lead_db PostgreSQL) -> POST /leads/v1/initiate on this release's API
+```
+
+| Resource | Values |
+|----------|--------|
+| FreeSWITCH Deployment (host network, greeting, ESL outbound socket) | `telephony.freeswitch` (`extIp`, `nodeSelector`) |
+| event-publisher Deployment | `telephony.eventPublisher` |
+| lead-service Deployment + Service :8080 | `telephony.leadService`, `telephony.leadRegistry` |
+| lead_db PostgreSQL Deployment + PVC | `telephony.postgres` |
+| Secret `leads-telephony-secrets` (`DB_USER`, `DB_PASSWORD`, `ESL_PASSWORD`, optional `LEAD_REGISTRY_API_KEY_VALUE`) | `telephony.secret` (`create: true` to let the chart own it) |
+
+Telephony images live in ECR **ap-northeast-1** (`freeswitch-{lead-service,event-publisher,freeswitch}`,
+pinned by digest). `leadRegistry.url` defaults to the API Service of this release; set
+`telephony.leadRegistry.serviceName` if you use `nameOverride`/`fullnameOverride`.
+
+## Namespace setup
+
+Nothing is created by hand in the namespace except the credential Secrets (or set
+`secrets.values` / `telephony.secret.create`):
+
+- **Image pull.** `ecrPullSecret` (on by default) writes `leads-api-ecr` before the pods start
+  (pre-install/pre-upgrade hook Job) and refreshes it every 8 hours (CronJob), using the node
+  IAM role. It covers the API registry (host of `image.repository`), `ecrPullSecret.extraRegistries`
+  and, with telephony enabled, `telephony.registry`.
+- **Install** into `leads`:
+
+```bash
+helm dependency build ./helm/leads-api
+helm upgrade --install leads-api ./helm/leads-api -n leads --create-namespace \
+  -f my-secret-values.yaml
+kubectl -n leads rollout status deploy/leads-api
+kubectl -n leads rollout status deploy/leads-api-telephony-lead-service
+```
+
 ## Keeping it on the latest image
 
 Develop builds are published to `379220350808.dkr.ecr.ap-south-1.amazonaws.com/eoan/leads-api/leads-api`

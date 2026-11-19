@@ -1,0 +1,6 @@
+dependencies:
+- name: telephony
+  repository: file://charts/telephony
+  version: 0.1.0
+digest: sha256:62c4b4a394591c953f2cb9e407c49cb396a2d54e7e3902b27a72bdf87dce1991
+generated: "2026-11-19T13:27:31.6841388+05:30"

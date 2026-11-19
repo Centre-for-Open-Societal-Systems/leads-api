@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FreeSWITCH configuration from Telephony-Service (freeswitch-kubernetes,
+  deploy/helm/telephony/templates/freeswitch-configmap.yaml), rendered with tpl.
+  Changes: the ESL password is read from the mounted Secret, and the ESL socket
+  targets this release's event-publisher Service.
+-->
+<document type="freeswitch/xml">
+  <!-- Global Variables -->
+  <X-PRE-PROCESS cmd="set" data="domain=localhost"/>
+  <X-PRE-PROCESS cmd="set" data="console_loglevel=info"/>
+  <!-- ESL password from the mounted Secret key ESL_PASSWORD; never stored in the ConfigMap. -->
+  <X-PRE-PROCESS cmd="exec-set" data="esl_password=cat /etc/freeswitch-secret/ESL_PASSWORD"/>
+
+  <!-- CONFIGURATIONS SECTION -->
+  <section name="configuration" description="Various Configuration">
+
+    <!-- Console Logging -->
+    <configuration name="console.conf" description="Console Logger">
+      <mappings>
+        <map name="all" value="console,info,notice,warn,err,crit,alert"/>
+      </mappings>
+    </configuration>
+
+    <!-- Event Socket Library (ESL) Configuration -->
+    <configuration name="event_socket.conf" description="Event Socket Client">
+      <settings>
+        <param name="listen-ip" value="127.0.0.1"/>
+        <param name="listen-port" value="8021"/>
+        <param name="password" value="$${esl_password}"/>
+      </settings>
+    </configuration>
+
+    <!-- Core Modules to Load -->
+    <configuration name="modules.conf" description="Modules">
+      <modules>
+        <load module="mod_console"/>
+        <load module="mod_logfile"/>
+        <load module="mod_commands"/>
+        <load module="mod_dptools"/>
+        <load module="mod_dialplan_xml"/>
+        <load module="mod_sofia"/>
+        <load module="mod_sndfile"/>
+        <load module="mod_shout"/>
+        <load module="mod_event_socket"/>
+      </modules>
+    </configuration>
+
+    <!-- Logfile Logger -->
+    <configuration name="logfile.conf" description="File Logger">
+      <settings>
+        <param name="rotate-on-hup" value="true"/>
+      </settings>
+      <profiles>
+        <profile name="default">
+          <settings>
+            <param name="logfile" value="/var/log/freeswitch/freeswitch.log"/>
+            <param name="level" value="debug"/>
+          </settings>
+          <mappings>
+            <map name="all" value="debug,info,notice,warn,err,crit,alert"/>
+          </mappings>
+        </profile>
+      </profiles>
+    </configuration>
+
+    <!-- Sofia SIP Configuration -->
+    <configuration name="sofia.conf" description="Sofia SIP Endpoint">
+      <global_settings>
+        <param name="log-level" value="0"/>
+        <param name="tracelevel" value="0"/>
+      </global_settings>
+      <profiles>
+        <!-- External Profile for Twilio Trunk Ingress -->
+        <profile name="external">
+          <settings>
+            <param name="debug" value="0"/>
+            <param name="sip-trace" value="no"/>
+            <param name="context" value="public"/>
+            <param name="rfc2833-pt" value="101"/>
+            <param name="sip-port" value="5060"/>
+            <param name="dialplan" value="XML"/>
+            <param name="dtmf-duration" value="2000"/>
+            <param name="codec-prefs" value="PCMU,PCMA"/>
+            <param name="use-rtp-timer" value="true"/>
+            <param name="rtp-timer-name" value="soft"/>
+            <param name="rtp-ip" value="$${local_ip_v4}"/>
+            <param name="sip-ip" value="$${local_ip_v4}"/>
+            <param name="ext-rtp-ip" value="{{ .Values.freeswitch.extIp | default "auto-nat" }}"/>
+            <param name="ext-sip-ip" value="{{ .Values.freeswitch.extIp | default "auto-nat" }}"/>
+            <param name="rtp-timeout-sec" value="300"/>
+            <param name="rtp-hold-timeout-sec" value="1800"/>
+            <param name="challenge-realm" value="auto_to_local"/>
+          </settings>
+        </profile>
+      </profiles>
+    </configuration>
+  </section>
+
+  <!-- DIALPLAN SECTION -->
+  <section name="dialplan" description="Regex Routing Table">
+    <context name="public">
+      <extension name="inbound_sip">
+        <!-- Match all incoming calls -->
+        <condition field="destination_number" expression="^.*$">
+          <!-- Answer the call -->
+          <action application="answer"/>
+          <!-- Log call arrival -->
+          <action application="log" data="INFO Incoming call from ${caller_id_number} to ${destination_number}"/>
+          <!-- Play greeting baked in Docker image -->
+          <action application="playback" data="/usr/share/freeswitch/sounds/custom/greeting.wav"/>
+          <!-- Connect to this release's Event Publisher via Outbound ESL socket -->
+          <action application="socket" data="{{ include "telephony.fullname" . }}-event-publisher.{{ .Release.Namespace }}.svc.cluster.local:8084 async full"/>
+          <!-- Hangup the call if not already hung up by publisher -->
+          <action application="hangup"/>
+        </condition>
+      </extension>
+    </context>
+  </section>
+
+  <!-- DIRECTORY SECTION -->
+  <section name="directory" description="User Directory">
+    <domain name="$${domain}">
+      <params>
+        <param name="dial-string" value="{presence_id=${dialed_user}@${dialed_domain}}${sofia_contact(${dialed_user}@${dialed_domain})}"/>
+      </params>
+    </domain>
+  </section>
+</document>

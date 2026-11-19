@@ -1,12 +1,21 @@
 apiVersion: v2
 name: leads-api
-description: Helm chart for the Leads API (Spring Boot) - Centre-for-Open-Societal-Systems/leads-api
+description: Helm chart for the Leads API (Spring Boot) and its Telephony lead capture (FreeSWITCH, event publisher, lead-service) - Centre-for-Open-Societal-Systems/leads-api
 type: application
 version: 0.1.0
 appVersion: "0.1.0-develop"
 keywords:
   - leads
   - spring-boot
+  - telephony
+  - freeswitch
 home: https://github.com/Centre-for-Open-Societal-Systems/leads-api
 sources:
   - https://github.com/Centre-for-Open-Societal-Systems/leads-api
+  - https://github.com/A5HW1NRA7AN/Telephony-Service/tree/freeswitch-kubernetes
+# Telephony is bundled as source in charts/telephony (reviewed in Git, no archive).
+dependencies:
+  - name: telephony
+    version: 0.1.0
+    repository: file://charts/telephony
+    condition: telephony.enabled

@@ -15,7 +15,26 @@ image:
   # Always pull so a restart picks up the newest floating tag
   pullPolicy: Always
 
+# Further pull secrets for the image, as [{name: ...}]; ecrPullSecret.name is added first
+# while ecrPullSecret is enabled.
 imagePullSecrets: []
+
+# ----------------------------------------------------------
+# ECR pull secret, kept by the release itself so the namespace needs no manual setup.
+# ECR tokens expire after 12 hours: a pre-install/pre-upgrade hook Job writes the secret
+# before the pods start and a CronJob refreshes it. Both use the node's IAM role and write
+# one dockerconfigjson covering every registry below.
+# ----------------------------------------------------------
+ecrPullSecret:
+  enabled: true
+  name: leads-api-ecr
+  registry: ""           # default: the host part of image.repository
+  # Further ECR registry hosts. telephony.registry is added while telephony is enabled.
+  extraRegistries: []
+  schedule: "0 */8 * * *"
+  awsCliImage: amazon/aws-cli:2.36.43
+  kubectlImage: alpine/k8s:1.31.1
+
 nameOverride: ""
 fullnameOverride: ""
 
@@ -195,3 +214,27 @@ podDisruptionBudget:
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+# ----------------------------------------------------------
+# Telephony lead capture (dependency charts/telephony, Telephony-Service branch
+# freeswitch-kubernetes): FreeSWITCH, ESL event publisher and lead-service with its lead_db
+# PostgreSQL. lead-service posts every call lead to this release's API (/leads/v1/initiate),
+# so both install together in the release namespace (leads). All keys and defaults are
+# in charts/telephony/values.yaml; the common ones:
+# ----------------------------------------------------------
+telephony:
+  enabled: true
+  # The telephony images' registry (ap-northeast-1); added to ecrPullSecret.
+  registry: 379220350808.dkr.ecr.ap-northeast-1.amazonaws.com
+  # The release's ECR pull secret (ecrPullSecret.name) covers the telephony registry too.
+  imagePullSecrets:
+    - name: leads-api-ecr
+  # Keys DB_USER, DB_PASSWORD, ESL_PASSWORD; with create: true, filled from `values`.
+  secret:
+    name: leads-telephony-secrets
+    create: false
+  freeswitch:
+    enabled: true
+    # Public IP of the node FreeSWITCH runs on (SIP trunk side); empty: auto-nat.
+    extIp: ""
+    nodeSelector: {}

@@ -1,0 +1,12 @@
+apiVersion: v2
+name: telephony
+description: OAN Telephony lead capture for the OAN Leads API; FreeSWITCH (greeting, then ESL),
+  event publisher and lead-service, which posts every call lead to the Leads API.
+type: application
+version: 0.1.0
+# Build 23 of the freeswitch-kubernetes branch (Telephony-Service Jenkinsfile).
+appVersion: "23"
+home: https://github.com/A5HW1NRA7AN/Telephony-Service/tree/freeswitch-kubernetes
+sources:
+- https://github.com/A5HW1NRA7AN/Telephony-Service/tree/freeswitch-kubernetes
+- https://github.com/Centre-for-Open-Societal-Systems/Telephony-Service

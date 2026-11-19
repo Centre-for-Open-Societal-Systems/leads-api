@@ -1,0 +1,100 @@
+{{- if .Values.freeswitch.enabled }}
+{{- $name := printf "%s-freeswitch" (include "telephony.fullname" .) }}
+{{- $selector := dict "root" . "component" "freeswitch" }}
+{{- $config := tpl (.Files.Get "files/freeswitch.xml") . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "telephony.labels" . | nindent 4 }}
+    app.kubernetes.io/component: freeswitch
+data:
+  freeswitch.xml: |
+    {{- $config | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "telephony.labels" . | nindent 4 }}
+    app.kubernetes.io/component: freeswitch
+spec:
+  # One instance on the node's network: SIP/RTP ports cannot be shared, so the old pod
+  # stops before the new one starts.
+  replicas: 1
+  revisionHistoryLimit: 5
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "telephony.selectorLabels" $selector | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ $config | sha256sum }}
+        {{- if .Values.secret.create }}
+        checksum/secret: {{ toJson .Values.secret.values | sha256sum }}
+        {{- end }}
+      labels:
+        {{- include "telephony.selectorLabels" $selector | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- include "telephony.pullSecrets" . | nindent 6 }}
+      containers:
+        - name: freeswitch
+          image: {{ include "telephony.image" (dict "registry" .Values.registry "image" .Values.freeswitch.image) | quote }}
+          imagePullPolicy: {{ .Values.freeswitch.image.pullPolicy }}
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN", "SYS_NICE", "SYS_RAWIO"]
+          ports:
+            - name: sip-udp
+              containerPort: 5060
+              protocol: UDP
+            - name: sip-tcp
+              containerPort: 5060
+              protocol: TCP
+          readinessProbe:
+            tcpSocket:
+              port: 5060
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 5060
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.freeswitch.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/freeswitch/freeswitch.xml
+              subPath: freeswitch.xml
+            - name: esl-secret
+              mountPath: /etc/freeswitch-secret
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $name }}
+        - name: esl-secret
+          secret:
+            secretName: {{ include "telephony.secretName" . }}
+            items:
+              - key: ESL_PASSWORD
+                path: ESL_PASSWORD
+      {{- with .Values.freeswitch.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.freeswitch.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
