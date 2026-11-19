@@ -1,6 +1,6 @@
 {{- /*
 In-namespace Service names for databases outside the cluster (externalDb).
-host -> ExternalName Service (DNS, follows RDS failover); ip -> Service + Endpoints.
+host -> ExternalName Service (DNS, follows RDS failover); ip -> selectorless Service + EndpointSlice.
 */ -}}
 {{- if .Values.externalDb.enabled }}
 {{- range $kind, $svc := dict "postgres" .Values.externalDb.postgres "elasticsearch" .Values.externalDb.elasticsearch }}
@@ -25,22 +25,28 @@ spec:
   externalName: {{ $svc.host | quote }}
   {{- end }}
   ports:
-    - port: {{ $svc.port }}
+    - name: {{ $kind }}
+      port: {{ $svc.port }}
       targetPort: {{ $svc.port }}
 {{- if $svc.ip }}
 ---
-apiVersion: v1
-kind: Endpoints
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
 metadata:
-  name: {{ $name }}
+  name: {{ $name }}-1
   labels:
     {{- include "leads-api.labels" $ | nindent 4 }}
     app.kubernetes.io/component: external-{{ $kind }}
-subsets:
+    kubernetes.io/service-name: {{ $name }}
+    endpointslice.kubernetes.io/managed-by: {{ $.Release.Name }}.helm
+addressType: {{ ternary "IPv6" "IPv4" (contains ":" $svc.ip) }}
+ports:
+  - name: {{ $kind }}
+    port: {{ $svc.port }}
+    protocol: TCP
+endpoints:
   - addresses:
-      - ip: {{ $svc.ip }}
-    ports:
-      - port: {{ $svc.port }}
+      - {{ $svc.ip | quote }}
 {{- end }}
 {{- end }}
 {{- end }}

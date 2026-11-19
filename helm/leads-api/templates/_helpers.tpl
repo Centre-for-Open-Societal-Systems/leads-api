@@ -22,7 +22,7 @@
 {{- define "leads-api.labels" -}}
 helm.sh/chart: {{ include "leads-api.chart" . }}
 {{ include "leads-api.baseSelectorLabels" . }}
-app.kubernetes.io/version: {{ .Values.image.tag | default .Chart.AppVersion | quote }}
+app.kubernetes.io/version: {{ first (splitList "@" (toString (.Values.image.tag | default .Chart.AppVersion))) | trunc 63 | trimSuffix "-" | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
@@ -45,11 +45,32 @@ app.kubernetes.io/component: api
 {{- end }}
 {{- end }}
 
+{{/*
+Image reference. OAN naming standard: no moving tags; the deploy pins
+tag "<version>@sha256:<digest>" (or image.digest). image.tag has no default, so the
+Jenkins job / environment values must set it.
+*/}}
 {{- define "leads-api.image" -}}
-{{- if .Values.image.digest -}}
-{{ .Values.image.repository }}@{{ .Values.image.digest }}
+{{- $repo := required "image.repository is required" .Values.image.repository -}}
+{{- $tag := toString (.Values.image.tag | default "") -}}
+{{- $digest := .Values.image.digest -}}
+{{- if and (not $tag) (not $digest) -}}
+{{- fail "image.tag (\"<version>@sha256:<digest>\") or image.digest is required; there is no default tag" -}}
+{{- end -}}
+{{- $bareTag := first (splitList "@" $tag) -}}
+{{- if and (contains "@" $tag) (not (regexMatch "^[^@]+@sha256:[a-f0-9]{64}$" $tag)) -}}
+{{- fail (printf "image.tag %q: the digest must be @sha256 followed by 64 lowercase hex characters" $tag) -}}
+{{- end -}}
+{{- if or (eq $bareTag "latest") (hasSuffix "-latest" $bareTag) (has $bareTag (list "develop" "staging" "dev" "main" "prod")) -}}
+{{- fail (printf "image.tag %q is a moving tag; use an immutable <version>-<branch>.<BUILD_NUMBER> tag pinned by digest" $tag) -}}
+{{- end -}}
+{{- if $digest -}}
+{{- if not (regexMatch "^sha256:[a-f0-9]{64}$" $digest) -}}
+{{- fail "image.digest must be sha256 followed by 64 lowercase hex characters" -}}
+{{- end -}}
+{{- printf "%s@%s" $repo $digest -}}
 {{- else -}}
-{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
+{{- printf "%s:%s" $repo $tag -}}
 {{- end -}}
 {{- end }}
 
@@ -167,4 +188,10 @@ template:
 
 {{- define "leads-api.esServiceName" -}}
 {{- .Values.externalDb.elasticsearch.serviceName | default (printf "%s-elasticsearch" (include "leads-api.fullname" .)) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{/* "true" when the in-chart Redis runs with a password: redis.auth.enabled, or the chart-managed
+Secret has SPRING_REDIS_PASSWORD. With secrets.existingSecret set redis.auth.enabled explicitly. */}}
+{{- define "leads-api.redisAuth" -}}
+{{- if or .Values.redis.auth.enabled (and (not .Values.secrets.existingSecret) .Values.secrets.values.SPRING_REDIS_PASSWORD) -}}true{{- end -}}
 {{- end -}}

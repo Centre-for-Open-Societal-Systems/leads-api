@@ -4,14 +4,6 @@ metadata:
   name: {{ include "leads-api.fullname" . }}
   labels:
     {{- include "leads-api.labels" . | nindent 4 }}
-  {{- if eq .Values.autoUpdate.mode "keel" }}
-  annotations:
-    keel.sh/policy: force
-    keel.sh/match-tag: "true"
-    keel.sh/trigger: poll
-    keel.sh/pollSchedule: {{ .Values.autoUpdate.keel.pollSchedule | quote }}
-    keel.sh/approvals: {{ .Values.autoUpdate.keel.approvals | quote }}
-  {{- end }}
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
@@ -63,10 +55,6 @@ spec:
             - secretRef:
                 name: {{ include "leads-api.secretName" . }}
           env:
-            - name: NODE_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: spec.nodeName
             {{- if .Values.javaOpts }}
             - name: JAVA_TOOL_OPTIONS
               value: {{ .Values.javaOpts | quote }}

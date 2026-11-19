@@ -1,0 +1,8 @@
+# CI: the minimum an environment must set (placeholders, never deployed).
+image:
+  tag: "0.1.0-develop.1@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+config:
+  SPRING_DATASOURCE_URL: jdbc:postgresql://postgres.example.internal:5432/leads_db
+  ELASTICSEARCH_HOST: elasticsearch.example.internal
+secrets:
+  existingSecret: leads-secrets

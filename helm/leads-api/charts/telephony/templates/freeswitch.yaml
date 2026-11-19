@@ -1,4 +1,7 @@
 {{- if .Values.freeswitch.enabled }}
+{{- if not .Values.freeswitch.nodeSelector }}
+{{- fail "telephony: freeswitch.nodeSelector is required: FreeSWITCH uses the node's network (SIP 5060 udp/tcp, RTP), so pin it to the node the SIP trunk points at, whose public IP is freeswitch.extIp" }}
+{{- end }}
 {{- $name := printf "%s-freeswitch" (include "telephony.fullname" .) }}
 {{- $selector := dict "root" . "component" "freeswitch" }}
 {{- $config := tpl (.Files.Get "files/freeswitch.xml") . }}
@@ -52,7 +55,10 @@ spec:
           imagePullPolicy: {{ .Values.freeswitch.image.pullPolicy }}
           securityContext:
             capabilities:
-              add: ["NET_ADMIN", "SYS_NICE", "SYS_RAWIO"]
+              # SYS_NICE: FreeSWITCH raises its scheduling priority for media (RTP) threads.
+              # NET_ADMIN: sets socket priority/ToS on SIP and RTP packets for QoS.
+              # (SYS_RAWIO from the upstream chart is not needed and was dropped.)
+              add: ["NET_ADMIN", "SYS_NICE"]
           ports:
             - name: sip-udp
               containerPort: 5060

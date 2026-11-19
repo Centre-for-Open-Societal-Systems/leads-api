@@ -1,24 +1,16 @@
 Leads API deployed: {{ include "leads-api.fullname" . }} ({{ include "leads-api.image" . }})
-
-Auto-update mode: {{ .Values.autoUpdate.mode }}
-{{- if eq .Values.autoUpdate.mode "keel" }}
-  Keel will poll the registry {{ .Values.autoUpdate.keel.pollSchedule }} and roll pods when
-  tag "{{ .Values.image.tag }}" gets a new digest. Make sure Keel is installed:
-    helm repo add keel https://charts.keel.sh && helm upgrade --install keel keel/keel -n keel --create-namespace --set helmProvider.enabled=false
-{{- else if eq .Values.autoUpdate.mode "cronjob" }}
-  CronJob {{ include "leads-api.fullname" . }}-updater restarts the deployment on "{{ .Values.autoUpdate.cronjob.schedule }}".
-{{- end }}
-
-Port-forward to test:
-  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "leads-api.fullname" . }} 8080:{{ .Values.service.port }}
-  open http://localhost:8080/swagger-ui/index.html
+The public route is the APISIX chart apisix/k8s (only POST /leads/v1/initiate).
 {{- if .Values.ecrPullSecret.enabled }}
 
 Image pull: {{ .Values.ecrPullSecret.name }} is written by the release (hook Job + CronJob {{ .Values.ecrPullSecret.schedule | quote }}) for {{ include "leads-api.ecrRegistries" . }}
 {{- end }}
 {{- if .Values.telephony.enabled }}
 
-Telephony: {{ .Release.Name }}-telephony-{lead-service,event-publisher{{ if .Values.telephony.freeswitch.enabled }},freeswitch{{ end }},db}
+Telephony: {{ .Release.Name }}-telephony-{lead-service,event-publisher{{ if .Values.telephony.freeswitch.enabled }},freeswitch{{ end }}}
   Secret: {{ .Values.telephony.secret.name }} (DB_USER, DB_PASSWORD, ESL_PASSWORD)
   kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ .Release.Name }}-telephony-lead-service
 {{- end }}
+
+Check:
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "leads-api.fullname" . }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "leads-api.fullname" . }} 8080:{{ .Values.service.port }}

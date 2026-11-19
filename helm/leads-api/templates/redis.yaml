@@ -21,7 +21,7 @@ spec:
       containers:
         - name: redis
           image: {{ .Values.redis.image }}
-          {{- if .Values.redis.auth.enabled }}
+          {{- if include "leads-api.redisAuth" . }}
           env:
             - name: REDIS_PASSWORD
               valueFrom:
@@ -30,7 +30,7 @@ spec:
                   key: SPRING_REDIS_PASSWORD
           {{- end }}
           {{- $args := .Values.redis.args | default list }}
-          {{- if .Values.redis.auth.enabled }}
+          {{- if include "leads-api.redisAuth" . }}
           {{- $args = concat $args (list "--requirepass" "$(REDIS_PASSWORD)") }}
           {{- end }}
           {{- with $args }}

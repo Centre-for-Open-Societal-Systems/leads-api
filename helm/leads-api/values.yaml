@@ -7,15 +7,17 @@
 replicaCount: 2
 
 image:
-  # OAN ECR (ap-south-1). Staging builds (Jenkinsfile, DEPLOY_ENV=staging) push
-  # staging-ati-<build> and the moving alias staging-ati-latest. Switch to
-  # eoan/leads-api/leads-api (develop-latest) once that repository exists in ECR.
+  # OAN ECR (ap-south-1). Switch to eoan/leads-api/leads-api once that repository exists.
   repository: 379220350808.dkr.ecr.ap-south-1.amazonaws.com/oan/leads-api
-  tag: staging-ati-latest
-  # Optional: pin by digest (sha256:...). Overrides tag when set.
+  # Required, no default (OAN naming standard, oan-helm docs/release/naming-standard.md):
+  # an immutable tag pinned by digest, "<version>-<branch>.<BUILD_NUMBER>@sha256:<digest>",
+  # set by the Jenkins job or the environment values. Moving tags (latest, *-latest,
+  # develop, staging, ...) are rejected. A new image reaches a cluster only through a
+  # reviewed change to that value and a Jenkins build; nothing in the chart updates itself.
+  tag: ""
+  # Alternative to a digest inside `tag`: sha256:<64 hex>. Overrides tag when set.
   digest: ""
-  # Always pull so a restart picks up the newest floating tag
-  pullPolicy: Always
+  pullPolicy: IfNotPresent
 
 # Further pull secrets for the image, as [{name: ...}]; ecrPullSecret.name is added first
 # while ecrPullSecret is enabled.
@@ -41,32 +43,6 @@ ecrPullSecret:
 
 nameOverride: ""
 fullnameOverride: ""
-
-# ----------------------------------------------------------
-# Auto-update: keep the running pods on the newest image of a floating tag.
-# For dev/staging only; a production install should pin image.tag/digest with mode none.
-# ----------------------------------------------------------
-autoUpdate:
-  # mode:
-  #   keel    - adds Keel annotations; Keel polls ECR for a new digest of
-  #             the floating tag and rolls the Deployment only on change.
-  #             Requires Keel installed in the cluster.
-  #   cronjob - in-chart CronJob runs `kubectl rollout restart` on a schedule.
-  #             No extra controller needed; with pullPolicy=Always the new
-  #             pods pull the latest image (restarts even if unchanged).
-  #   none    - no auto-update (use `helm upgrade --set image.tag=...` from CI)
-  mode: keel
-  keel:
-    pollSchedule: "@every 2m"
-    # Number of approvals Keel waits for before rolling; 0 rolls immediately.
-    approvals: 0
-  cronjob:
-    schedule: "*/15 * * * *"
-    # Official image; distroless (no shell), so the CronJob calls kubectl directly
-    image: registry.k8s.io/kubectl:v1.31.0
-    resources:
-      requests: { cpu: 10m, memory: 32Mi }
-      limits: { cpu: 100m, memory: 128Mi }
 
 serviceAccount:
   create: true
@@ -102,6 +78,8 @@ resources:
     memory: 2Gi
     cpu: 1000m
 
+# TCP probes: the app has no Spring Boot Actuator (pom.xml), so there is no
+# /actuator/health/{readiness,liveness}. Switch to httpGet on those once Actuator is added.
 readinessProbe:
   tcpSocket:
     port: http
@@ -175,8 +153,11 @@ redis:
   image: redis:7-alpine
   args: ["redis-server", "--save", "", "--appendonly", "no"]
   auth:
-    # Start redis with --requirepass from the SPRING_REDIS_PASSWORD key of the app Secret
-    # (chart-managed or secrets.existingSecret), so the app and redis share one password.
+    # Start redis with --requirepass from the SPRING_REDIS_PASSWORD key of the app Secret, so
+    # the app and redis share one password. On automatically when the chart-managed Secret has
+    # SPRING_REDIS_PASSWORD; with secrets.existingSecret set this to true (the chart cannot
+    # read that Secret). Without a password the cache is reachable by any pod that can reach
+    # the Service in the cluster network, so set one outside throwaway environments.
     enabled: false
   resources:
     requests: { memory: 64Mi, cpu: 100m }
@@ -187,7 +168,7 @@ redis:
 # put the hostname straight into config.SPRING_DATASOURCE_URL / ELASTICSEARCH_HOST.
 # Each Service is <release fullname>-postgres / -elasticsearch unless serviceName is set.
 #   host: a DNS name (RDS endpoint, shared instance) -> ExternalName Service (follows failover)
-#   ip:   a fixed private IP -> Service + Endpoints (only for hosts whose IP never changes)
+#   ip:   a fixed private IP -> Service + EndpointSlice (only for hosts whose IP never changes)
 # ----------------------------------------------------------
 externalDb:
   enabled: false
@@ -249,5 +230,5 @@ telephony:
     extIp: ""
     # Required: the SIP trunk's source CIDRs; every other caller is rejected.
     sipTrunkCidrs: []
-    # Pin FreeSWITCH to the node the SIP trunk points at.
+    # Required: pin FreeSWITCH to the node the SIP trunk points at (host network, port 5060).
     nodeSelector: {}

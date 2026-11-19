@@ -34,22 +34,33 @@ kubectl -n leads rollout status deploy/leads-api
 
 Then install the APISIX route (`apisix/README.md`).
 
-## Image
+## Image and rollouts
 
-Default: `379220350808.dkr.ecr.ap-south-1.amazonaws.com/oan/leads-api:staging-ati-latest`,
-the moving alias pushed by the staging Jenkins build (`staging-ati-<build>` is immutable).
-`eoan/leads-api/leads-api` does not exist in ECR yet; switch `image.repository` and
-`image.tag` (`develop-latest`) once it does.
+Following the OAN naming standard (oan-helm `docs/release/naming-standard.md`), there are no
+moving tags and nothing in the chart updates itself:
 
-## Keeping it on the latest image (dev/staging)
+- `image.tag` has **no default** and must be an immutable tag pinned by digest,
+  `<version>-<branch>.<BUILD_NUMBER>@sha256:<digest>` (or set `image.digest`). Moving tags
+  (`latest`, `*-latest`, `develop`, `staging`, ...) are rejected at render time.
+- A new image reaches a cluster only through a reviewed change to that value and a Jenkins
+  build running `helm upgrade`. There is no Keel and no restart CronJob, and `pullPolicy` is `IfNotPresent`.
+- Repository: `oan/leads-api` (ap-south-1) today, e.g.
+  `staging-ati-7@sha256:e3fba3f392b3add9f9c91ba87528878ff5b8f1c7a8b3e2298c5405a2c1db9121`.
+  Switch to `eoan/leads-api/leads-api` once it exists in ECR.
 
-`autoUpdate.mode`:
+## CI
 
-| mode | how it works | needs |
-|------|--------------|-------|
-| `keel` (default) | Keel polls ECR every 2m; when the digest of the floating tag changes, it rolls the Deployment (`approvals: 0`) | Keel in the cluster (its pod needs ECR read access, e.g. the node role) |
-| `cronjob` | in-chart CronJob runs `kubectl rollout restart` on a schedule; `pullPolicy: Always` pulls the newest image | nothing extra; restarts even when the image hasn't changed |
-| `none` | CI deploys a pinned tag with `helm upgrade --set image.tag=...` | the only mode for production |
+`.github/workflows/helm-charts.yml` runs on every pull request to `dev` that touches `helm/` or
+`apisix/`:
+- `helm lint --strict` with `ci/default-values.yaml`, telephony on, and externalDb;
+- `helm template` checks for telephony off and on;
+- checks that the bare defaults and moving tags fail;
+- the APISIX routes chart (exactly one public path).
+
+## Probes
+
+TCP only: the app has no Spring Boot Actuator. Once Actuator is added, switch to
+`httpGet` on `/actuator/health/readiness` and `/actuator/health/liveness`.
 
 ## Databases
 
@@ -60,14 +71,16 @@ If the app should use in-namespace names instead, enable `externalDb`. It create
 `<release>-postgres` and `<release>-elasticsearch` (or `serviceName`) and fills the config from them:
 
 - `host`: a DNS name, giving an `ExternalName` Service (use this for RDS or a shared instance);
-- `ip`: a fixed private IP, giving a Service plus Endpoints (only for a host whose IP never changes).
+- `ip`: a fixed private IP, giving a Service plus EndpointSlice (only for a host whose IP never changes).
 
 ## Redis
 
 The in-chart Redis is a pure cache with no persistence: its data is lost on restart. To use a shared
 Redis, set `redis.enabled=false` and `config.SPRING_REDIS_HOST`. The app reads
-`SPRING_REDIS_PASSWORD`; with `redis.auth.enabled=true` the in-chart Redis starts with
-`--requirepass` from the same Secret key.
+`SPRING_REDIS_PASSWORD`. When the chart-managed Secret has it, the in-chart Redis starts with
+`--requirepass` automatically. With `secrets.existingSecret`, set `redis.auth.enabled=true`.
+Without a password, any pod that can reach the Service can read the cache, so set one outside
+throwaway environments.
 
 ## Secrets
 
@@ -80,16 +93,21 @@ are **not** restarted. Run `kubectl -n leads rollout restart deploy/leads-api` a
 `ecrPullSecret` (on by default) writes `leads-api-ecr` before the pods start (pre-install /
 pre-upgrade hook Job) and refreshes it every 8 hours (CronJob), using the node IAM role. It
 covers the API registry (host of `image.repository`), `ecrPullSecret.extraRegistries` and,
-with telephony enabled, `telephony.registry`. Its Role may `create` any Secret in the
-namespace, because Kubernetes cannot limit `create` by name. `get`, `update` and `patch` are limited to
-`leads-api-ecr`.
+with telephony enabled, `telephony.registry`. Only the hook's Role may `create` Secrets (needed
+once; Kubernetes cannot limit `create` by name), and Helm deletes the hook's ServiceAccount, Role
+and RoleBinding when the hook succeeds. The CronJob's Role has only `get`, `update` and `patch`
+on `leads-api-ecr`. If that Secret is deleted, the next `helm upgrade` recreates it.
 
 ## Telephony (lead capture by phone)
 
 The chart bundles [Telephony-Service](https://github.com/A5HW1NRA7AN/Telephony-Service/tree/freeswitch-kubernetes)
 (branch `freeswitch-kubernetes`, build 23) as the source subchart `charts/telephony`.
-**It is off by default** (`telephony.enabled`). FreeSWITCH runs on the node's network with
-`NET_ADMIN`, `SYS_NICE` and `SYS_RAWIO` and answers SIP, so enable it deliberately:
+**It is off by default** (`telephony.enabled`). FreeSWITCH runs on the node's network and
+answers SIP, so enable it deliberately. Its capabilities are:
+- `SYS_NICE`, for real-time priority on media threads;
+- `NET_ADMIN`, for socket priority and ToS on SIP and RTP.
+
+`SYS_RAWIO` from the upstream chart is dropped.
 
 ```
 caller -> SIP trunk -> freeswitch (greeting) -> ESL -> event-publisher
@@ -101,7 +119,7 @@ Required when enabled:
 | Value | What |
 |-------|------|
 | `telephony.freeswitch.sipTrunkCidrs` | The SIP trunk's source CIDRs. FreeSWITCH's inbound ACL (`sip_trunk`, default deny) rejects every other caller |
-| `telephony.freeswitch.nodeSelector`, `extIp` | The node the trunk points at, and its public IP |
+| `telephony.freeswitch.nodeSelector` (required), `extIp` | The node the trunk points at, and its public IP. With host networking, ports 5060 udp/tcp must be free on that node |
 | `telephony.leadService.dbUrl` | `lead_db` on the shared PostgreSQL, `jdbc:postgresql://<host>:5432/lead_db` |
 | Secret `leads-telephony-secrets` | `DB_USER`, `DB_PASSWORD`, `ESL_PASSWORD` (optional `LEAD_REGISTRY_API_KEY_VALUE`); or `telephony.secret.create=true` with values |
 

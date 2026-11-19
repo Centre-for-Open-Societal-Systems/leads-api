@@ -1,0 +1,10 @@
+# CI: telephony enabled with its required values (placeholders, never deployed).
+telephony:
+  enabled: true
+  leadService:
+    dbUrl: jdbc:postgresql://postgres.example.internal:5432/lead_db
+  freeswitch:
+    sipTrunkCidrs: ["192.0.2.0/28"]
+    extIp: 192.0.2.10
+    nodeSelector:
+      kubernetes.io/hostname: telephony-node
