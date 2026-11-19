@@ -1,0 +1,91 @@
+{{- $name := printf "%s-event-publisher" (include "telephony.fullname" .) }}
+{{- $selector := dict "root" . "component" "event-publisher" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "telephony.labels" . | nindent 4 }}
+    app.kubernetes.io/component: event-publisher
+spec:
+  replicas: {{ .Values.eventPublisher.replicas }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "telephony.selectorLabels" $selector | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "telephony.selectorLabels" $selector | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      {{- include "telephony.pullSecrets" . | nindent 6 }}
+      containers:
+        - name: event-publisher
+          image: {{ include "telephony.image" (dict "registry" .Values.registry "image" .Values.eventPublisher.image) | quote }}
+          imagePullPolicy: {{ .Values.eventPublisher.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            # FreeSWITCH connects here (dialplan `socket ... async full`).
+            - name: esl
+              containerPort: 8084
+              protocol: TCP
+          env:
+            - name: LEAD_SERVICE_URL
+              value: {{ include "telephony.leadServiceUrl" . | quote }}
+            - name: LEAD_SERVICE_MAX_RETRIES
+              value: {{ .Values.eventPublisher.maxRetries | quote }}
+            # telephony.esl.spool-dir: events lead-service did not accept, retried later.
+            - name: TELEPHONY_ESL_SPOOL_DIR
+              value: {{ .Values.eventPublisher.spoolDir | quote }}
+          # Spring Boot enables the liveness/readiness groups when it runs on Kubernetes.
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.eventPublisher.resources | nindent 12 }}
+          volumeMounts:
+            - name: spool
+              mountPath: {{ .Values.eventPublisher.spoolDir }}
+      volumes:
+        - name: spool
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "telephony.labels" . | nindent 4 }}
+    app.kubernetes.io/component: event-publisher
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "telephony.selectorLabels" $selector | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+    - name: esl
+      port: 8084
+      targetPort: esl
+      protocol: TCP

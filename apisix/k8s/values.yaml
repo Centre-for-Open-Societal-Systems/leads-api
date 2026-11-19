@@ -1,0 +1,40 @@
+# Values for oan-leads-gateway. Environment values: helm/environments/<env>/oan-leads-gateway.yaml.
+# Install into the namespace of the leads-api release (leads), so the route can reach its Service.
+
+ingressClassName: apisix
+
+# Public hosts the route matches (run through tpl). Required: an empty list would match any
+# host on the shared gateway.
+hosts: []
+
+# The leads-api Service of the helm/leads-api release (in this namespace).
+web:
+  serviceName: leads-api
+  port: 80
+  timeout:
+    connect: 5s
+    send: 20s
+    read: 20s
+
+# POST /leads/v1/initiate is the only public path. The Leads API has no inbound auth, so this
+# per-client-IP limit is the endpoint's protection (the old Kong rule: 5 per minute per IP).
+initiate:
+  rateLimit:
+    count: 5
+    timeWindow: 60
+  # Request body limit in bytes.
+  maxBodySize: 65536
+
+# Limit-count counters, shared by all gateway replicas: the Redis of the APISIX release
+# (environments/dev/values/gateway-common.yaml in oan-helm). Required.
+redis:
+  host: ""
+  port: 6379
+
+# Browser origins allowed to call initiate (regexes, anchored). Empty: no CORS plugin.
+corsOriginRegexes: []
+
+# APISIX terminates TLS for `hosts` with this Secret (tls.crt, tls.key) in the release
+# namespace. Empty: no ApisixTls (e.g. a wildcard certificate configured on the gateway).
+tls:
+  secretName: ""

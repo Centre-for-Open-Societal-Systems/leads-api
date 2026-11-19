@@ -1,0 +1,52 @@
+{{- /*
+In-namespace Service names for databases outside the cluster (externalDb).
+host -> ExternalName Service (DNS, follows RDS failover); ip -> selectorless Service + EndpointSlice.
+*/ -}}
+{{- if .Values.externalDb.enabled }}
+{{- range $kind, $svc := dict "postgres" .Values.externalDb.postgres "elasticsearch" .Values.externalDb.elasticsearch }}
+{{- $name := ternary (include "leads-api.pgServiceName" $) (include "leads-api.esServiceName" $) (eq $kind "postgres") }}
+{{- if and $svc.host $svc.ip }}
+{{- fail (printf "externalDb.%s: set host or ip, not both" $kind) }}
+{{- end }}
+{{- if not (or $svc.host $svc.ip) }}
+{{- fail (printf "externalDb.%s.host (DNS name) or externalDb.%s.ip is required when externalDb.enabled" $kind $kind) }}
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "leads-api.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: external-{{ $kind }}
+spec:
+  {{- if $svc.host }}
+  type: ExternalName
+  externalName: {{ $svc.host | quote }}
+  {{- end }}
+  ports:
+    - name: {{ $kind }}
+      port: {{ $svc.port }}
+      targetPort: {{ $svc.port }}
+{{- if $svc.ip }}
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: {{ $name }}-1
+  labels:
+    {{- include "leads-api.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: external-{{ $kind }}
+    kubernetes.io/service-name: {{ $name }}
+    endpointslice.kubernetes.io/managed-by: {{ $.Release.Name }}.helm
+addressType: {{ ternary "IPv6" "IPv4" (contains ":" $svc.ip) }}
+ports:
+  - name: {{ $kind }}
+    port: {{ $svc.port }}
+    protocol: TCP
+endpoints:
+  - addresses:
+      - {{ $svc.ip | quote }}
+{{- end }}
+{{- end }}
+{{- end }}

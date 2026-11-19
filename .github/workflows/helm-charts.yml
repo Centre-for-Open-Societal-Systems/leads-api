@@ -1,0 +1,72 @@
+# Lint and render the Helm charts on every pull request to dev.
+name: helm-charts
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - "helm/**"
+      - "apisix/**"
+      - ".github/workflows/helm-charts.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  charts:
+    runs-on: ubuntu-latest
+    env:
+      CHART: helm/leads-api
+      GATEWAY: apisix/k8s
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+
+      - name: Build dependencies (telephony subchart)
+        run: helm dependency build "$CHART"
+
+      - name: Defaults alone must fail (no moving image tag, no default DB)
+        run: |
+          if out=$(helm template leads-api "$CHART" 2>&1); then
+            echo "::error::rendering with bare defaults succeeded; required values are missing"; exit 1
+          fi
+          echo "$out" | grep -E "is required" || { echo "$out"; exit 1; }
+
+      - name: Moving tags are rejected
+        run: |
+          for t in latest develop-latest staging-ati-latest develop; do
+            if helm template leads-api "$CHART" -f "$CHART/ci/default-values.yaml" --set image.tag="$t" >/dev/null 2>&1; then
+              echo "::error::moving tag $t was accepted"; exit 1
+            fi
+          done
+
+      - name: Lint
+        run: |
+          helm lint "$CHART" -f "$CHART/ci/default-values.yaml" --strict
+          helm lint "$CHART" -f "$CHART/ci/default-values.yaml" -f "$CHART/ci/telephony-values.yaml" --strict
+          helm lint "$CHART" -f "$CHART/ci/default-values.yaml" -f "$CHART/ci/external-db-values.yaml" --strict
+
+      - name: Template (telephony off, telephony on, externalDb)
+        run: |
+          helm template leads-api "$CHART" -n leads -f "$CHART/ci/default-values.yaml" > off.yaml
+          helm template leads-api "$CHART" -n leads -f "$CHART/ci/default-values.yaml" -f "$CHART/ci/telephony-values.yaml" > on.yaml
+          helm template leads-api "$CHART" -n leads -f "$CHART/ci/default-values.yaml" -f "$CHART/ci/external-db-values.yaml" > db.yaml
+          ! grep -q "telephony" off.yaml
+          grep -q 'cidr="192.0.2.0/28"' on.yaml
+          grep -q "kind: EndpointSlice" db.yaml
+          grep -q -- "--requirepass" db.yaml
+          ! grep -qE "keel.sh|rollout restart" off.yaml on.yaml db.yaml
+
+      - name: Telephony without its required values must fail
+        run: |
+          ! helm template leads-api "$CHART" -f "$CHART/ci/default-values.yaml" --set telephony.enabled=true >/dev/null 2>&1
+
+      - name: APISIX routes chart
+        run: |
+          helm lint "$GATEWAY" -f helm/environments/dev/oan-leads-gateway.yaml --set redis.host=redis.example --strict
+          helm template leads-gateway "$GATEWAY" -n leads -f helm/environments/dev/oan-leads-gateway.yaml --set redis.host=redis.example > gw.yaml
+          grep -q "/leads/v1/initiate" gw.yaml
+          test "$(grep -c '^      - /' gw.yaml)" -eq 1

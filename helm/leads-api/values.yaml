@@ -1,0 +1,234 @@
+# ==========================================================
+# Leads API - default values
+# The public route (APISIX) is not part of this chart: it is the
+# oan-leads-gateway chart in apisix/k8s of this repository.
+# ==========================================================
+
+replicaCount: 2
+
+image:
+  # OAN ECR (ap-south-1). Switch to eoan/leads-api/leads-api once that repository exists.
+  repository: 379220350808.dkr.ecr.ap-south-1.amazonaws.com/oan/leads-api
+  # Required, no default (OAN naming standard, oan-helm docs/release/naming-standard.md):
+  # an immutable tag pinned by digest, "<version>-<branch>.<BUILD_NUMBER>@sha256:<digest>",
+  # set by the Jenkins job or the environment values. Moving tags (latest, *-latest,
+  # develop, staging, ...) are rejected. A new image reaches a cluster only through a
+  # reviewed change to that value and a Jenkins build; nothing in the chart updates itself.
+  tag: ""
+  # Alternative to a digest inside `tag`: sha256:<64 hex>. Overrides tag when set.
+  digest: ""
+  pullPolicy: IfNotPresent
+
+# Further pull secrets for the image, as [{name: ...}]; ecrPullSecret.name is added first
+# while ecrPullSecret is enabled.
+imagePullSecrets: []
+
+# ----------------------------------------------------------
+# ECR pull secret, kept by the release itself so the namespace needs no manual setup.
+# ECR tokens expire after 12 hours: a pre-install/pre-upgrade hook Job writes the secret
+# before the pods start and a CronJob refreshes it. Both use the node's IAM role and write
+# one dockerconfigjson covering every registry below.
+# Note: the refresher's Role may create any Secret in the namespace (Kubernetes cannot limit
+# `create` by name); get/update/patch are limited to `name`.
+# ----------------------------------------------------------
+ecrPullSecret:
+  enabled: true
+  name: leads-api-ecr
+  registry: ""           # default: the host part of image.repository
+  # Further ECR registry hosts. telephony.registry is added while telephony is enabled.
+  extraRegistries: []
+  schedule: "0 */8 * * *"
+  awsCliImage: amazon/aws-cli:2.36.43
+  kubectlImage: alpine/k8s:1.31.1
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # e.g. eks.amazonaws.com/role-arn: arn:aws:iam::<acct>:role/leads-api
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+securityContext: {}
+
+containerPort: 8080
+
+# ClusterIP only: the API is reached in-cluster, and publicly only through the APISIX
+# routes chart (apisix/k8s), which exposes POST /leads/v1/initiate alone.
+service:
+  type: ClusterIP
+  port: 80
+
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 0
+    maxSurge: 1
+
+resources:
+  requests:
+    memory: 512Mi
+    cpu: 250m
+  limits:
+    memory: 2Gi
+    cpu: 1000m
+
+# TCP probes: the app has no Spring Boot Actuator (pom.xml), so there is no
+# /actuator/health/{readiness,liveness}. Switch to httpGet on those once Actuator is added.
+readinessProbe:
+  tcpSocket:
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  failureThreshold: 5
+
+livenessProbe:
+  tcpSocket:
+    port: http
+  initialDelaySeconds: 60
+  periodSeconds: 20
+  failureThreshold: 3
+
+# JVM options (container-aware heap sizing)
+javaOpts: "-XX:MaxRAMPercentage=75.0"
+
+# ----------------------------------------------------------
+# Application configuration (-> ConfigMap, env vars).
+# Spring relaxed binding maps these onto application.properties.
+# ----------------------------------------------------------
+config:
+  # Required. The shared PostgreSQL by hostname, e.g.
+  # jdbc:postgresql://<shared-postgres-host>:5432/leads_db. Empty: the externalDb Service
+  # (when externalDb.enabled), otherwise the install stops with an error.
+  SPRING_DATASOURCE_URL: ""
+  # Empty: the in-chart Redis (redis.enabled). Set it to use a shared Redis instead.
+  SPRING_REDIS_HOST: ""
+  SPRING_REDIS_PORT: "6379"
+  # Required, like SPRING_DATASOURCE_URL: a hostname, or empty for the externalDb Service.
+  ELASTICSEARCH_HOST: ""
+  ELASTICSEARCH_PORT: "9200"
+  SPRING_JPA_SHOW_SQL: "false"
+  A2C_WEBHOOK_INITIATE_URL: ""
+  A2C_WEBHOOK_INITIATE_ENABLED: "false"
+
+# Extra env vars (list of k8s EnvVar)
+extraEnv: []
+
+# ----------------------------------------------------------
+# Secrets
+# ----------------------------------------------------------
+secrets:
+  # Use an existing Secret instead of creating one (recommended outside dev).
+  # Must contain the keys listed under `values` below. Changing it does NOT roll the pods;
+  # run `kubectl rollout restart deploy/<release>` afterwards.
+  existingSecret: ""
+  # Chart-managed Secret (existingSecret empty). Supply these from a secret values file,
+  # never from Git. The install stops if a required key is empty:
+  #   always: SPRING_DATASOURCE_USERNAME, SPRING_DATASOURCE_PASSWORD,
+  #           ELASTICSEARCH_USERNAME, ELASTICSEARCH_PASSWORD
+  #   A2C_WEBHOOK_INITIATE_ENABLED=true: A2C_WEBHOOK_API_KEY, A2C_WEBHOOK_API_SECRET
+  #   redis.auth.enabled: SPRING_REDIS_PASSWORD
+  # Changing a value rolls the pods.
+  values:
+    SPRING_DATASOURCE_USERNAME: ""
+    SPRING_DATASOURCE_PASSWORD: ""
+    ELASTICSEARCH_USERNAME: ""
+    ELASTICSEARCH_PASSWORD: ""
+    A2C_WEBHOOK_API_KEY: ""
+    A2C_WEBHOOK_API_SECRET: ""
+    # Read by RedisConfig as spring.redis.password; leave empty for passwordless Redis.
+    SPRING_REDIS_PASSWORD: ""
+
+# ----------------------------------------------------------
+# In-cluster Redis, a pure cache: no persistence, data is lost on restart.
+# Disable it and set config.SPRING_REDIS_HOST to use a shared Redis.
+# ----------------------------------------------------------
+redis:
+  enabled: true
+  image: redis:7-alpine
+  args: ["redis-server", "--save", "", "--appendonly", "no"]
+  auth:
+    # Start redis with --requirepass from the SPRING_REDIS_PASSWORD key of the app Secret, so
+    # the app and redis share one password. On automatically when the chart-managed Secret has
+    # SPRING_REDIS_PASSWORD; with secrets.existingSecret set this to true (the chart cannot
+    # read that Secret). Without a password the cache is reachable by any pod that can reach
+    # the Service in the cluster network, so set one outside throwaway environments.
+    enabled: false
+  resources:
+    requests: { memory: 64Mi, cpu: 100m }
+    limits: { memory: 128Mi, cpu: 200m }
+
+# ----------------------------------------------------------
+# Optional in-namespace Service names for databases outside the cluster. Usually not needed:
+# put the hostname straight into config.SPRING_DATASOURCE_URL / ELASTICSEARCH_HOST.
+# Each Service is <release fullname>-postgres / -elasticsearch unless serviceName is set.
+#   host: a DNS name (RDS endpoint, shared instance) -> ExternalName Service (follows failover)
+#   ip:   a fixed private IP -> Service + EndpointSlice (only for hosts whose IP never changes)
+# ----------------------------------------------------------
+externalDb:
+  enabled: false
+  postgres:
+    serviceName: ""
+    host: ""
+    ip: ""
+    port: 5432
+    database: leads_db
+  elasticsearch:
+    serviceName: ""
+    host: ""
+    ip: ""
+    port: 9200
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 75
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# ----------------------------------------------------------
+# Telephony lead capture (dependency charts/telephony, Telephony-Service branch
+# freeswitch-kubernetes): FreeSWITCH, ESL event publisher and lead-service. lead-service
+# posts every call lead to this release's API (/leads/v1/initiate), so both install together
+# in the release namespace (leads). Off by default: FreeSWITCH runs on the node's network
+# with extra capabilities and answers SIP, so enable it only on a chosen node with the SIP
+# trunk's CIDRs set. All keys and defaults are in charts/telephony/values.yaml.
+# ----------------------------------------------------------
+telephony:
+  enabled: false
+  # The telephony images' registry (ap-northeast-1); added to ecrPullSecret.
+  registry: 379220350808.dkr.ecr.ap-northeast-1.amazonaws.com
+  # The release's ECR pull secret (ecrPullSecret.name) covers the telephony registry too.
+  imagePullSecrets:
+    - name: leads-api-ecr
+  # Keys DB_USER, DB_PASSWORD, ESL_PASSWORD; with create: true, filled from `values`.
+  secret:
+    name: leads-telephony-secrets
+    create: false
+  leadService:
+    # Required while telephony is enabled: lead_db on the shared PostgreSQL, e.g.
+    # jdbc:postgresql://<shared-postgres-host>:5432/lead_db
+    dbUrl: ""
+  # In-chart lead_db PostgreSQL (single replica, PVC kept on uninstall, no backup).
+  postgres:
+    enabled: false
+  freeswitch:
+    enabled: true
+    # Public IP of the node FreeSWITCH runs on (SIP trunk side); empty: auto-nat.
+    extIp: ""
+    # Required: the SIP trunk's source CIDRs; every other caller is rejected.
+    sipTrunkCidrs: []
+    # Required: pin FreeSWITCH to the node the SIP trunk points at (host network, port 5060).
+    nodeSelector: {}

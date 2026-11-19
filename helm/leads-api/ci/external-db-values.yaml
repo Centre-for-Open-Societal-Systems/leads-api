@@ -1,0 +1,18 @@
+# CI: externalDb bridge (ExternalName + EndpointSlice), chart-managed Secret, Redis auth.
+config:
+  SPRING_DATASOURCE_URL: ""
+  ELASTICSEARCH_HOST: ""
+externalDb:
+  enabled: true
+  postgres:
+    host: leads-db.example.rds.amazonaws.com
+  elasticsearch:
+    ip: 10.0.0.10
+secrets:
+  existingSecret: ""
+  values:
+    SPRING_DATASOURCE_USERNAME: ci
+    SPRING_DATASOURCE_PASSWORD: ci
+    ELASTICSEARCH_USERNAME: ci
+    ELASTICSEARCH_PASSWORD: ci
+    SPRING_REDIS_PASSWORD: ci

@@ -1,0 +1,114 @@
+# Telephony lead capture, a dependency of the leads-api chart (values key `telephony`).
+# Source: https://github.com/A5HW1NRA7AN/Telephony-Service/tree/freeswitch-kubernetes
+# (same commit as Centre-for-Open-Societal-Systems/Telephony-Service freeswitch-kubernetes).
+# Call flow:
+#
+#   caller -> SIP trunk -> freeswitch (answer, play greeting)
+#          -> ESL outbound socket -> event-publisher -> lead-service (lead_db)
+#          -> POST /leads/v1/initiate on the Leads API of the same release
+#
+# Images are pinned by digest; the tag in the comment says which build it is.
+
+# ECR registry of the three telephony images. The parent chart adds it to its ECR pull
+# secret (leads-api-ecr), so one secret pulls both the Leads API and the telephony images.
+registry: 379220350808.dkr.ecr.ap-northeast-1.amazonaws.com
+
+# Pull secrets for the telephony pods, as [{name: ...}]; the parent sets leads-api-ecr.
+imagePullSecrets: []
+
+# Credentials, read by name and key; never from Git. Keys: DB_USER, DB_PASSWORD
+# (lead_db), ESL_PASSWORD (FreeSWITCH event socket); optional
+# LEAD_REGISTRY_API_KEY_VALUE (sent in leadRegistry.apiKeyHeader).
+secret:
+  name: leads-telephony-secrets
+  # true: the chart owns Secret `name`, filled from `values` (the delivery's secret
+  # values file). false: `name` must already exist in the namespace.
+  create: false
+  values: {}
+
+# Where lead-service posts leads. Empty url: the Leads API Service of this release,
+# http://<service>.<namespace>.svc.cluster.local:<leadsApiPort>/leads/v1/initiate.
+leadRegistry:
+  url: ""
+  # The Leads API Service name. Empty: the parent's default fullname (<release> when the
+  # release name contains "leads-api", else <release>-leads-api); set it when the parent
+  # uses nameOverride/fullnameOverride.
+  serviceName: ""
+  leadsApiPort: 80
+  # The Leads API has no inbound auth; set both to send a key header.
+  apiKeyHeader: ""
+
+leadService:
+  replicas: 2
+  image:
+    repository: freeswitch-lead-service
+    # 23
+    tag: "23"
+    digest: sha256:cff58b507f71f490a97e59f71aea23d91f0fad738a515a5a36009a28a03e9e01
+    pullPolicy: IfNotPresent
+  # Hangup events from these dialplan contexts create leads (inbound calls run in `public`).
+  leadContext: "public,from-missed-call"
+  # Empty: the in-chart database (<release>-telephony-db). Set for an external PostgreSQL.
+  dbUrl: ""
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { cpu: "1", memory: 512Mi }
+
+eventPublisher:
+  replicas: 2
+  image:
+    repository: freeswitch-event-publisher
+    # 23
+    tag: "23"
+    digest: sha256:3f9d9b8fa2d09be80ca065bb36cfac4a10a56733f07011ccc54105e07e77da3f
+    pullPolicy: IfNotPresent
+  maxRetries: 3
+  # Events lead-service did not accept are spooled here and retried every 30 s. An
+  # emptyDir: it survives container restarts, not the pod's deletion.
+  spoolDir: /app/spool
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { cpu: "1", memory: 512Mi }
+
+freeswitch:
+  enabled: true
+  image:
+    repository: freeswitch-freeswitch
+    # 23
+    tag: "23"
+    digest: sha256:dba2ea6852080b13a0d2c8b37aefa5e64d1e785ccc046b86ad816fa9642a9c22
+    pullPolicy: IfNotPresent
+  # FreeSWITCH runs on the node's network (SIP 5060 UDP/TCP, RTP UDP 16384-32768, the
+  # FreeSWITCH default range), so
+  # one node answers the SIP trunk. Pin it with nodeSelector and set extIp to that
+  # node's public IP; empty uses auto-nat.
+  extIp: ""
+  # Source addresses (CIDRs) of the SIP trunk. FreeSWITCH accepts calls only from these
+  # (acl.conf list sip_trunk, default deny). Required while freeswitch is enabled, so a node
+  # with a public IP never answers arbitrary callers (e.g. the trunk provider's signalling ranges).
+  sipTrunkCidrs: []
+  nodeSelector: {}
+  tolerations: []
+  resources:
+    requests: { cpu: 500m, memory: 512Mi }
+    limits: { cpu: "2", memory: 2Gi }
+
+# lead_db (call event and lead dispatch logs). Default: the shared PostgreSQL; set
+# leadService.dbUrl (jdbc:postgresql://<host>:5432/lead_db; DB_USER/DB_PASSWORD from the
+# Secret). enabled: true runs a single-replica in-chart PostgreSQL instead, on a PVC that is
+# kept on uninstall and has no backup: for throwaway environments only.
+postgres:
+  enabled: false
+  image:
+    repository: docker.io/library/postgres
+    # 16-alpine
+    tag: ""
+    digest: sha256:1d5b02d3a9941fbd52437db4107f8c52d6297dac553ca1e5c299ebb3756b4857
+    pullPolicy: IfNotPresent
+  database: lead_db
+  storageSize: 10Gi
+  # Empty: the cluster's default StorageClass.
+  storageClassName: ""
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }

@@ -1,0 +1,13 @@
+# Upstream settings for the leads-api Service (same name, same namespace).
+apiVersion: apisix.apache.org/v2
+kind: ApisixUpstream
+metadata:
+  name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
+  labels:
+    app: oan-leads
+spec:
+  ingressClassName: {{ .Values.ingressClassName | quote }}
+  scheme: http
+  retries: 2
+  timeout:
+    {{- toYaml .Values.web.timeout | nindent 4 }}
