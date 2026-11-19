@@ -17,7 +17,7 @@
 //                         prefix -> staging-ati-<build>, uniform with the other repos)
 //         <env>-latest    moving alias (convenience)
 //
-//  Agent needs: docker(+buildx), aws cli v2, git, kustomize.
+//  Agent needs: docker(+buildx), aws cli v2, git, curl (kustomize auto-fetched by the CI script).
 //  Credentials: AWS_ACCOUNT_ID (string), aws-credentials (legacy path), oan-deployer
 //               (GitHub App, contents:write on oan-kustomize). Staging ECR push uses the
 //               agent's ambient AWS identity (must have ECR push on oan/*).
