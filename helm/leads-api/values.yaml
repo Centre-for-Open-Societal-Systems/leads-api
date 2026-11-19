@@ -1,15 +1,17 @@
 # ==========================================================
 # Leads API - default values
+# The public route (APISIX) is not part of this chart: it is the
+# oan-leads-gateway chart in apisix/k8s of this repository.
 # ==========================================================
 
 replicaCount: 2
 
 image:
-  # OAN ECR (ap-south-1), same scheme as eoan/oan-a2c-service/a2c-service
-  repository: 379220350808.dkr.ecr.ap-south-1.amazonaws.com/eoan/leads-api/leads-api
-  # Moving alias pushed with every develop build.
-  # For pinned deploys use the immutable tag <version>-develop.<build>, e.g. 0.1.0-develop.12
-  tag: develop-latest
+  # OAN ECR (ap-south-1). Staging builds (Jenkinsfile, DEPLOY_ENV=staging) push
+  # staging-ati-<build> and the moving alias staging-ati-latest. Switch to
+  # eoan/leads-api/leads-api (develop-latest) once that repository exists in ECR.
+  repository: 379220350808.dkr.ecr.ap-south-1.amazonaws.com/oan/leads-api
+  tag: staging-ati-latest
   # Optional: pin by digest (sha256:...). Overrides tag when set.
   digest: ""
   # Always pull so a restart picks up the newest floating tag
@@ -24,6 +26,8 @@ imagePullSecrets: []
 # ECR tokens expire after 12 hours: a pre-install/pre-upgrade hook Job writes the secret
 # before the pods start and a CronJob refreshes it. Both use the node's IAM role and write
 # one dockerconfigjson covering every registry below.
+# Note: the refresher's Role may create any Secret in the namespace (Kubernetes cannot limit
+# `create` by name); get/update/patch are limited to `name`.
 # ----------------------------------------------------------
 ecrPullSecret:
   enabled: true
@@ -39,13 +43,14 @@ nameOverride: ""
 fullnameOverride: ""
 
 # ----------------------------------------------------------
-# Auto-update: keep the running pods on the newest image
+# Auto-update: keep the running pods on the newest image of a floating tag.
+# For dev/staging only; a production install should pin image.tag/digest with mode none.
 # ----------------------------------------------------------
 autoUpdate:
   # mode:
   #   keel    - adds Keel annotations; Keel polls ECR for a new digest of
   #             the floating tag and rolls the Deployment only on change.
-  #             Requires Keel installed in the cluster (recommended).
+  #             Requires Keel installed in the cluster.
   #   cronjob - in-chart CronJob runs `kubectl rollout restart` on a schedule.
   #             No extra controller needed; with pullPolicy=Always the new
   #             pods pull the latest image (restarts even if unchanged).
@@ -53,6 +58,7 @@ autoUpdate:
   mode: keel
   keel:
     pollSchedule: "@every 2m"
+    # Number of approvals Keel waits for before rolling; 0 rolls immediately.
     approvals: 0
   cronjob:
     schedule: "*/15 * * * *"
@@ -76,6 +82,8 @@ securityContext: {}
 
 containerPort: 8080
 
+# ClusterIP only: the API is reached in-cluster, and publicly only through the APISIX
+# routes chart (apisix/k8s), which exposes POST /leads/v1/initiate alone.
 service:
   type: ClusterIP
   port: 80
@@ -116,10 +124,15 @@ javaOpts: "-XX:MaxRAMPercentage=75.0"
 # Spring relaxed binding maps these onto application.properties.
 # ----------------------------------------------------------
 config:
-  SPRING_DATASOURCE_URL: "jdbc:postgresql://leads-postgres:5432/leads_db"
-  SPRING_REDIS_HOST: ""          # empty => in-chart redis service name
+  # Required. The shared PostgreSQL by hostname, e.g.
+  # jdbc:postgresql://<shared-postgres-host>:5432/leads_db. Empty: the externalDb Service
+  # (when externalDb.enabled), otherwise the install stops with an error.
+  SPRING_DATASOURCE_URL: ""
+  # Empty: the in-chart Redis (redis.enabled). Set it to use a shared Redis instead.
+  SPRING_REDIS_HOST: ""
   SPRING_REDIS_PORT: "6379"
-  ELASTICSEARCH_HOST: "leads-elasticsearch"
+  # Required, like SPRING_DATASOURCE_URL: a hostname, or empty for the externalDb Service.
+  ELASTICSEARCH_HOST: ""
   ELASTICSEARCH_PORT: "9200"
   SPRING_JPA_SHOW_SQL: "false"
   A2C_WEBHOOK_INITIATE_URL: ""
@@ -132,9 +145,17 @@ extraEnv: []
 # Secrets
 # ----------------------------------------------------------
 secrets:
-  # Use an existing Secret instead of creating one (recommended in prod).
-  # Must contain the keys listed under `values` below.
+  # Use an existing Secret instead of creating one (recommended outside dev).
+  # Must contain the keys listed under `values` below. Changing it does NOT roll the pods;
+  # run `kubectl rollout restart deploy/<release>` afterwards.
   existingSecret: ""
+  # Chart-managed Secret (existingSecret empty). Supply these from a secret values file,
+  # never from Git. The install stops if a required key is empty:
+  #   always: SPRING_DATASOURCE_USERNAME, SPRING_DATASOURCE_PASSWORD,
+  #           ELASTICSEARCH_USERNAME, ELASTICSEARCH_PASSWORD
+  #   A2C_WEBHOOK_INITIATE_ENABLED=true: A2C_WEBHOOK_API_KEY, A2C_WEBHOOK_API_SECRET
+  #   redis.auth.enabled: SPRING_REDIS_PASSWORD
+  # Changing a value rolls the pods.
   values:
     SPRING_DATASOURCE_USERNAME: ""
     SPRING_DATASOURCE_PASSWORD: ""
@@ -143,16 +164,16 @@ secrets:
     A2C_WEBHOOK_API_KEY: ""
     A2C_WEBHOOK_API_SECRET: ""
     # Read by RedisConfig as spring.redis.password; leave empty for passwordless Redis.
-    # With redis.auth.enabled=true the in-chart Redis uses this key for --requirepass.
     SPRING_REDIS_PASSWORD: ""
 
 # ----------------------------------------------------------
-# In-cluster Redis (ephemeral cache, mirrors terra/prod/k8/02-redis.yaml)
+# In-cluster Redis, a pure cache: no persistence, data is lost on restart.
+# Disable it and set config.SPRING_REDIS_HOST to use a shared Redis.
 # ----------------------------------------------------------
 redis:
   enabled: true
   image: redis:7-alpine
-  args: ["redis-server", "--appendonly", "yes"]
+  args: ["redis-server", "--save", "", "--appendonly", "no"]
   auth:
     # Start redis with --requirepass from the SPRING_REDIS_PASSWORD key of the app Secret
     # (chart-managed or secrets.existingSecret), so the app and redis share one password.
@@ -162,44 +183,25 @@ redis:
     limits: { memory: 128Mi, cpu: 200m }
 
 # ----------------------------------------------------------
-# External Postgres / Elasticsearch on a private EC2
-# (mirrors terra/prod/k8/03-db-external.yaml.tpl)
+# Optional in-namespace Service names for databases outside the cluster. Usually not needed:
+# put the hostname straight into config.SPRING_DATASOURCE_URL / ELASTICSEARCH_HOST.
+# Each Service is <release fullname>-postgres / -elasticsearch unless serviceName is set.
+#   host: a DNS name (RDS endpoint, shared instance) -> ExternalName Service (follows failover)
+#   ip:   a fixed private IP -> Service + Endpoints (only for hosts whose IP never changes)
 # ----------------------------------------------------------
 externalDb:
   enabled: false
-  ip: ""                 # private IP of DB EC2
   postgres:
-    serviceName: leads-postgres
+    serviceName: ""
+    host: ""
+    ip: ""
     port: 5432
+    database: leads_db
   elasticsearch:
-    serviceName: leads-elasticsearch
+    serviceName: ""
+    host: ""
+    ip: ""
     port: 9200
-
-# ----------------------------------------------------------
-# Kong routing (mirrors terra/prod/k8/06-kong-to-app.yaml)
-# ----------------------------------------------------------
-kong:
-  enabled: false
-  ingressClassName: kong
-  host: ""
-  rateLimit:
-    enabled: true
-    path: /leads/v1/initiate
-    minute: 5
-    limitBy: ip
-    policy: local
-
-# Generic ingress (use instead of kong if preferred)
-ingress:
-  enabled: false
-  className: nginx
-  annotations: {}
-  hosts:
-    - host: leads.example.com
-      paths:
-        - path: /
-          pathType: Prefix
-  tls: []
 
 autoscaling:
   enabled: false
@@ -217,13 +219,14 @@ affinity: {}
 
 # ----------------------------------------------------------
 # Telephony lead capture (dependency charts/telephony, Telephony-Service branch
-# freeswitch-kubernetes): FreeSWITCH, ESL event publisher and lead-service with its lead_db
-# PostgreSQL. lead-service posts every call lead to this release's API (/leads/v1/initiate),
-# so both install together in the release namespace (leads). All keys and defaults are
-# in charts/telephony/values.yaml; the common ones:
+# freeswitch-kubernetes): FreeSWITCH, ESL event publisher and lead-service. lead-service
+# posts every call lead to this release's API (/leads/v1/initiate), so both install together
+# in the release namespace (leads). Off by default: FreeSWITCH runs on the node's network
+# with extra capabilities and answers SIP, so enable it only on a chosen node with the SIP
+# trunk's CIDRs set. All keys and defaults are in charts/telephony/values.yaml.
 # ----------------------------------------------------------
 telephony:
-  enabled: true
+  enabled: false
   # The telephony images' registry (ap-northeast-1); added to ecrPullSecret.
   registry: 379220350808.dkr.ecr.ap-northeast-1.amazonaws.com
   # The release's ECR pull secret (ecrPullSecret.name) covers the telephony registry too.
@@ -233,8 +236,18 @@ telephony:
   secret:
     name: leads-telephony-secrets
     create: false
+  leadService:
+    # Required while telephony is enabled: lead_db on the shared PostgreSQL, e.g.
+    # jdbc:postgresql://<shared-postgres-host>:5432/lead_db
+    dbUrl: ""
+  # In-chart lead_db PostgreSQL (single replica, PVC kept on uninstall, no backup).
+  postgres:
+    enabled: false
   freeswitch:
     enabled: true
     # Public IP of the node FreeSWITCH runs on (SIP trunk side); empty: auto-nat.
     extIp: ""
+    # Required: the SIP trunk's source CIDRs; every other caller is rejected.
+    sipTrunkCidrs: []
+    # Pin FreeSWITCH to the node the SIP trunk points at.
     nodeSelector: {}

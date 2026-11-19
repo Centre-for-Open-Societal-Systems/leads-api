@@ -83,16 +83,22 @@ freeswitch:
   # one node answers the SIP trunk. Pin it with nodeSelector and set extIp to that
   # node's public IP; empty uses auto-nat.
   extIp: ""
+  # Source addresses (CIDRs) of the SIP trunk. FreeSWITCH accepts calls only from these
+  # (acl.conf list sip_trunk, default deny). Required while freeswitch is enabled, so a node
+  # with a public IP never answers arbitrary callers (e.g. the trunk provider's signalling ranges).
+  sipTrunkCidrs: []
   nodeSelector: {}
   tolerations: []
   resources:
     requests: { cpu: 500m, memory: 512Mi }
     limits: { cpu: "2", memory: 2Gi }
 
-# In-chart PostgreSQL for lead_db (call event and lead dispatch logs). Disable and set
-# leadService.dbUrl to use an external PostgreSQL with the same DB_USER/DB_PASSWORD.
+# lead_db (call event and lead dispatch logs). Default: the shared PostgreSQL; set
+# leadService.dbUrl (jdbc:postgresql://<host>:5432/lead_db; DB_USER/DB_PASSWORD from the
+# Secret). enabled: true runs a single-replica in-chart PostgreSQL instead, on a PVC that is
+# kept on uninstall and has no backup: for throwaway environments only.
 postgres:
-  enabled: true
+  enabled: false
   image:
     repository: docker.io/library/postgres
     # 16-alpine

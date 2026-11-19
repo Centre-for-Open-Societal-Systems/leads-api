@@ -1,0 +1,8 @@
+apiVersion: v2
+name: oan-leads-gateway
+description: APISIX Ingress Controller routes for the Leads API; exposes only POST /leads/v1/initiate, rate-limited per client IP
+type: application
+version: 0.1.0
+annotations:
+  oan.org/owner: OpenAgriNet (OAN)
+  oan.org/chart-source: https://github.com/Centre-for-Open-Societal-Systems/leads-api/tree/dev/apisix/k8s

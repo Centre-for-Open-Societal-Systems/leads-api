@@ -1,3 +1,29 @@
+{{- /*
+SPRING_DATASOURCE_URL and ELASTICSEARCH_HOST are required: set them to the shared hosts, or
+leave them empty with externalDb.enabled to use its Services. SPRING_REDIS_HOST empty means
+the in-chart Redis, which must then be enabled.
+*/ -}}
+{{- $cfg := deepCopy .Values.config }}
+{{- $db := .Values.externalDb }}
+{{- if not $cfg.SPRING_DATASOURCE_URL }}
+{{- if not $db.enabled }}
+{{- fail "config.SPRING_DATASOURCE_URL is required (e.g. jdbc:postgresql://<shared-postgres-host>:5432/leads_db), or enable externalDb" }}
+{{- end }}
+{{- $_ := set $cfg "SPRING_DATASOURCE_URL" (printf "jdbc:postgresql://%s:%v/%s" (include "leads-api.pgServiceName" .) $db.postgres.port $db.postgres.database) }}
+{{- end }}
+{{- if not $cfg.ELASTICSEARCH_HOST }}
+{{- if not $db.enabled }}
+{{- fail "config.ELASTICSEARCH_HOST is required (the Elasticsearch hostname), or enable externalDb" }}
+{{- end }}
+{{- $_ := set $cfg "ELASTICSEARCH_HOST" (include "leads-api.esServiceName" .) }}
+{{- $_ := set $cfg "ELASTICSEARCH_PORT" (toString $db.elasticsearch.port) }}
+{{- end }}
+{{- if not $cfg.SPRING_REDIS_HOST }}
+{{- if not .Values.redis.enabled }}
+{{- fail "config.SPRING_REDIS_HOST is required when redis.enabled is false (the shared Redis host)" }}
+{{- end }}
+{{- $_ := set $cfg "SPRING_REDIS_HOST" (include "leads-api.redisName" .) }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -5,10 +31,6 @@ metadata:
   labels:
     {{- include "leads-api.labels" . | nindent 4 }}
 data:
-  {{- range $k, $v := .Values.config }}
-  {{- if and (eq $k "SPRING_REDIS_HOST") (not $v) }}
-  {{ $k }}: {{ include "leads-api.redisName" $ | quote }}
-  {{- else }}
+  {{- range $k, $v := $cfg }}
   {{ $k }}: {{ $v | toString | quote }}
-  {{- end }}
   {{- end }}

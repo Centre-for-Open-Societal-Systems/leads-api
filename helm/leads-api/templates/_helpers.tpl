@@ -159,3 +159,12 @@ template:
         emptyDir:
           medium: Memory
 {{- end -}}
+
+{{/* Service names of the externalDb bridge: serviceName, else <fullname>-postgres / -elasticsearch. */}}
+{{- define "leads-api.pgServiceName" -}}
+{{- .Values.externalDb.postgres.serviceName | default (printf "%s-postgres" (include "leads-api.fullname" .)) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "leads-api.esServiceName" -}}
+{{- .Values.externalDb.elasticsearch.serviceName | default (printf "%s-elasticsearch" (include "leads-api.fullname" .)) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}

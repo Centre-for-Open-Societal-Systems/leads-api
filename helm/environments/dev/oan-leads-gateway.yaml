@@ -1,0 +1,30 @@
+# Values for the oan-leads-gateway chart (leads-api/apisix/k8s).
+# Target: the cluster that runs APISIX (namespace api6-gateway) and the leads-api release
+# (namespace leads); install the routes into `leads`. See apisix/README.md.
+#
+# Pass oan-helm's shared gateway values first (they set redis.host):
+#   -f <oan-helm>/environments/dev/values/gateway-common.yaml -f helm/environments/dev/oan-leads-gateway.yaml
+
+ingressClassName: apisix
+
+global:
+  baseDomain: development.oanstaging.com
+
+hosts:
+  - leads-api.{{ .Values.global.baseDomain }}
+
+# No `tls`: in dev APISIX terminates TLS for every *.development.oanstaging.com host with one
+# wildcard (oan-helm environments/dev/manifests/apisix-edge.yaml).
+
+web:
+  serviceName: leads-api
+  port: 80
+
+# 5 requests per minute per client IP, as the Kong rule on prod.
+initiate:
+  rateLimit:
+    count: 5
+    timeWindow: 60
+
+# Set when a browser form posts to initiate directly.
+corsOriginRegexes: []

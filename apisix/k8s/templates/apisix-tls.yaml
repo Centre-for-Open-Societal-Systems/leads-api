@@ -1,0 +1,19 @@
+# APISIX terminates TLS for `hosts` with Secret `tls.secretName` (tls.crt, tls.key) in the
+# release namespace.
+{{- if and .Values.tls .Values.tls.secretName }}
+apiVersion: apisix.apache.org/v2
+kind: ApisixTls
+metadata:
+  name: oan-leads-tls
+  labels:
+    app: oan-leads
+spec:
+  ingressClassName: {{ .Values.ingressClassName | quote }}
+  hosts:
+{{- range (required "hosts is required with tls.secretName" .Values.hosts) }}
+  - {{ tpl . $ | quote }}
+{{- end }}
+  secret:
+    name: {{ .Values.tls.secretName | quote }}
+    namespace: {{ .Release.Namespace | quote }}
+{{- end }}

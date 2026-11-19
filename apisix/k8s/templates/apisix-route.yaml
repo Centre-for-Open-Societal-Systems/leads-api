@@ -1,0 +1,65 @@
+# Leads API public route. Only POST /leads/v1/initiate is exposed; every other path
+# (search, read, create, update, delete, qualify, process, Swagger) stays in-cluster.
+{{- $hosts := .Values.hosts }}
+{{- if not $hosts }}
+{{- fail "hosts is required: without it the route would match any host on the shared gateway" }}
+{{- end }}
+{{- $rl := .Values.initiate.rateLimit }}
+apiVersion: apisix.apache.org/v2
+kind: ApisixRoute
+metadata:
+  name: leads-api-public
+  labels:
+    app: oan-leads
+spec:
+  ingressClassName: {{ .Values.ingressClassName | quote }}
+  http:
+  - name: leads-initiate
+    match:
+      hosts:
+{{- range $hosts }}
+      - {{ tpl . $ | quote }}
+{{- end }}
+      paths:
+      - /leads/v1/initiate
+      methods:
+      - POST
+{{- if .Values.corsOriginRegexes }}
+      - OPTIONS
+{{- end }}
+    plugins:
+{{- if .Values.corsOriginRegexes }}
+    - name: cors
+      enable: true
+      config:
+        allow_origins: https://cors-by-regex-only.invalid
+        allow_origins_by_regex:
+{{- range .Values.corsOriginRegexes }}
+        - {{ printf "^(?:%s)$" . | quote }}
+{{- end }}
+        allow_methods: POST,OPTIONS
+        allow_headers: Content-Type,X-Request-Id
+        max_age: 3600
+{{- end }}
+    - name: client-control
+      enable: true
+      config:
+        max_body_size: {{ .Values.initiate.maxBodySize }}
+    - name: limit-count
+      enable: true
+      config:
+        rules:
+        - count: {{ $rl.count }}
+          time_window: {{ $rl.timeWindow }}
+          key: $remote_addr:leads-initiate
+        rejected_code: 429
+        show_limit_quota_header: true
+        policy: redis
+        redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
+        redis_port: {{ .Values.redis.port }}
+        # The limit is the endpoint's only protection: refuse rather than pass unlimited
+        # traffic when Redis is unreachable.
+        allow_degradation: false
+    backends:
+    - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
+      servicePort: {{ .Values.web.port }}

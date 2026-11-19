@@ -1,30 +1,46 @@
+{{- /*
+In-namespace Service names for databases outside the cluster (externalDb).
+host -> ExternalName Service (DNS, follows RDS failover); ip -> Service + Endpoints.
+*/ -}}
 {{- if .Values.externalDb.enabled }}
-{{- if not .Values.externalDb.ip }}
-{{- fail "externalDb.ip is required when externalDb.enabled=true" }}
+{{- range $kind, $svc := dict "postgres" .Values.externalDb.postgres "elasticsearch" .Values.externalDb.elasticsearch }}
+{{- $name := ternary (include "leads-api.pgServiceName" $) (include "leads-api.esServiceName" $) (eq $kind "postgres") }}
+{{- if and $svc.host $svc.ip }}
+{{- fail (printf "externalDb.%s: set host or ip, not both" $kind) }}
 {{- end }}
-{{- range $svc := list .Values.externalDb.postgres .Values.externalDb.elasticsearch }}
+{{- if not (or $svc.host $svc.ip) }}
+{{- fail (printf "externalDb.%s.host (DNS name) or externalDb.%s.ip is required when externalDb.enabled" $kind $kind) }}
+{{- end }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ $svc.serviceName }}
+  name: {{ $name }}
   labels:
     {{- include "leads-api.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: external-{{ $kind }}
 spec:
+  {{- if $svc.host }}
+  type: ExternalName
+  externalName: {{ $svc.host | quote }}
+  {{- end }}
   ports:
     - port: {{ $svc.port }}
       targetPort: {{ $svc.port }}
+{{- if $svc.ip }}
 ---
 apiVersion: v1
 kind: Endpoints
 metadata:
-  name: {{ $svc.serviceName }}
+  name: {{ $name }}
   labels:
     {{- include "leads-api.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: external-{{ $kind }}
 subsets:
   - addresses:
-      - ip: {{ $.Values.externalDb.ip }}
+      - ip: {{ $svc.ip }}
     ports:
       - port: {{ $svc.port }}
+{{- end }}
 {{- end }}
 {{- end }}
