@@ -126,7 +126,7 @@ Required when enabled:
 `telephony.postgres.enabled=true` runs an in-chart single-replica `postgres:16-alpine` on a
 10Gi PVC instead. The PVC is kept on uninstall and has no backup, so use it only for throwaway environments.
 
-Telephony images live in ECR **ap-northeast-1** (`freeswitch-{lead-service,event-publisher,freeswitch}`,
+Telephony images live in ECR **ap-south-1** (`eoan/leads-api/{lead-service,event-publisher,freeswitch}:0.1.0-develop.<build>`,
 pinned by digest). lead-service posts to this release's API Service; set
 `telephony.leadRegistry.serviceName` if you use `nameOverride`/`fullnameOverride`.
 
