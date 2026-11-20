@@ -5,7 +5,7 @@ description: OAN Telephony lead capture for the OAN Leads API; FreeSWITCH (greet
 type: application
 version: 0.1.0
 # Build 23 of the freeswitch-kubernetes branch (Telephony-Service Jenkinsfile).
-appVersion: "23"
+appVersion: "0.1.0-develop.23"
 home: https://github.com/A5HW1NRA7AN/Telephony-Service/tree/freeswitch-kubernetes
 sources:
 - https://github.com/A5HW1NRA7AN/Telephony-Service/tree/freeswitch-kubernetes

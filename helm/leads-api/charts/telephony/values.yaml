@@ -9,9 +9,10 @@
 #
 # Images are pinned by digest; the tag in the comment says which build it is.
 
-# ECR registry of the three telephony images. The parent chart adds it to its ECR pull
+# ECR registry of the three telephony images (ap-south-1, eoan/leads-api/<image>, the OAN
+# naming standard). The parent chart adds it to its ECR pull
 # secret (leads-api-ecr), so one secret pulls both the Leads API and the telephony images.
-registry: 379220350808.dkr.ecr.ap-northeast-1.amazonaws.com
+registry: 379220350808.dkr.ecr.ap-south-1.amazonaws.com
 
 # Pull secrets for the telephony pods, as [{name: ...}]; the parent sets leads-api-ecr.
 imagePullSecrets: []
@@ -41,9 +42,9 @@ leadRegistry:
 leadService:
   replicas: 2
   image:
-    repository: freeswitch-lead-service
-    # 23
-    tag: "23"
+    repository: eoan/leads-api/lead-service
+    # build 23, copied from ap-northeast-1 freeswitch-*:23 (same digest)
+    tag: "0.1.0-develop.23"
     digest: sha256:cff58b507f71f490a97e59f71aea23d91f0fad738a515a5a36009a28a03e9e01
     pullPolicy: IfNotPresent
   # Hangup events from these dialplan contexts create leads (inbound calls run in `public`).
@@ -57,9 +58,9 @@ leadService:
 eventPublisher:
   replicas: 2
   image:
-    repository: freeswitch-event-publisher
-    # 23
-    tag: "23"
+    repository: eoan/leads-api/event-publisher
+    # build 23, copied from ap-northeast-1 freeswitch-*:23 (same digest)
+    tag: "0.1.0-develop.23"
     digest: sha256:3f9d9b8fa2d09be80ca065bb36cfac4a10a56733f07011ccc54105e07e77da3f
     pullPolicy: IfNotPresent
   maxRetries: 3
@@ -73,9 +74,9 @@ eventPublisher:
 freeswitch:
   enabled: true
   image:
-    repository: freeswitch-freeswitch
-    # 23
-    tag: "23"
+    repository: eoan/leads-api/freeswitch
+    # build 23, copied from ap-northeast-1 freeswitch-*:23 (same digest)
+    tag: "0.1.0-develop.23"
     digest: sha256:dba2ea6852080b13a0d2c8b37aefa5e64d1e785ccc046b86ad816fa9642a9c22
     pullPolicy: IfNotPresent
   # FreeSWITCH runs on the node's network (SIP 5060 UDP/TCP, RTP UDP 16384-32768, the
