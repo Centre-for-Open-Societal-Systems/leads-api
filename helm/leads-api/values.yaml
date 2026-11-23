@@ -208,8 +208,8 @@ affinity: {}
 # ----------------------------------------------------------
 telephony:
   enabled: false
-  # The telephony images' registry (ap-northeast-1); added to ecrPullSecret.
-  registry: 379220350808.dkr.ecr.ap-northeast-1.amazonaws.com
+  # The telephony images' registry (ap-south-1, eoan/leads-api/*); added to ecrPullSecret.
+  registry: 379220350808.dkr.ecr.ap-south-1.amazonaws.com
   # The release's ECR pull secret (ecrPullSecret.name) covers the telephony registry too.
   imagePullSecrets:
     - name: leads-api-ecr
