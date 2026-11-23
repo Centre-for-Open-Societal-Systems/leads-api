@@ -13,7 +13,8 @@
 //    other   -> build + push to the LEGACY ECR (leads-a2c, us-west-2) — previous behaviour,
 //               no deploy step.
 //  Opt-in, any env (DEPLOY_LEADS_NS=true, default false): after the above, also Helm-install
-//    helm/leads-api (leads-api + telephony) into namespace `leads` via ci/deploy-leads-helm.sh.
+//    helm/leads-api (leads-api + telephony) into namespace `leads`: digests on this agent
+//    (ci/resolve-leads-images.sh), Helm on oan-ci-deploy (ci/deploy-leads-helm.sh).
 //
 //  Tags:  <env>-<build>   immutable, pinned by oan-kustomize (staging uses a `staging-ati-`
 //                         prefix -> staging-ati-<build>, uniform with the other repos)
@@ -38,10 +39,10 @@ pipeline {
            description: 'Install telephony in the same release, in namespace leads (never a separate namespace)')
     string(name: 'TELEPHONY_TAG', defaultValue: '',
            description: 'Telephony image tag in ap-south-1 eoan/leads-api/* (e.g. 0.1.0-develop.24); empty = the build pinned in the chart')
-    string(name: 'LEADS_KUBECONFIG_CRED', defaultValue: 'leads-kubeconfig',
-           description: 'Jenkins secret-file credential: kubeconfig of the target cluster')
-    string(name: 'LEADS_VALUES_CRED', defaultValue: 'leads-values-dev',
-           description: 'Jenkins secret-file credential: environment values incl. secrets (see helm/leads-api/ci/deploy-values.example.yaml)')
+    string(name: 'LEADS_KUBECONFIG_CRED', defaultValue: 'dev-leads-deployer-kubeconfig',
+           description: 'Jenkins secret-file credential: leads-deployer kubeconfig (oan-helm environments/dev/rbac/leads-deployer-rbac.yaml)')
+    string(name: 'LEADS_VALUES_CRED', defaultValue: 'dev-leads-secret-values',
+           description: 'Jenkins secret-file credential: Elasticsearch host + usernames/passwords (template helm/leads-api/ci/deploy-values.example.yaml)')
   }
 
   options {
@@ -165,17 +166,16 @@ pipeline {
     // Opt-in (DEPLOY_LEADS_NS): install the image this build pushed, plus telephony, with
     // the helm/leads-api chart into namespace `leads`. Runs after the existing push/GitOps
     // stages and never changes them. A failure marks the build UNSTABLE, not green.
-    // Environment values and secrets come from the LEADS_VALUES_CRED secret file, never Git.
-    stage('Deploy (Helm → leads namespace)') {
+    // Two steps, as in the registries (oan-helm docs/release/environments.md §4):
+    //   1. on this build agent (AWS identity): pin every image by digest;
+    //   2. on the oan-ci-deploy agent (reaches the clusters): helm upgrade with the
+    //      leads-deployer kubeconfig. Secrets come from LEADS_VALUES_CRED, never Git.
+    stage('Resolve images (leads namespace)') {
       when { expression { params.DEPLOY_LEADS_NS } }
       steps {
         catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
           script {
-            def creds = [
-              string(credentialsId: 'AWS_ACCOUNT_ID', variable: 'AWS_ACCOUNT_ID'),
-              file(credentialsId: params.LEADS_KUBECONFIG_CRED, variable: 'KUBECONFIG'),
-              file(credentialsId: params.LEADS_VALUES_CRED, variable: 'LEADS_VALUES_FILE')
-            ]
+            def creds = [string(credentialsId: 'AWS_ACCOUNT_ID', variable: 'AWS_ACCOUNT_ID')]
             // The legacy push authenticates with aws-credentials; staging uses the agent's identity.
             if (env.IS_STAGING != 'true') {
               creds << [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']
@@ -185,11 +185,31 @@ pipeline {
                        "TELEPHONY_TAG=${params.TELEPHONY_TAG?.trim() ?: ''}"]) {
                 sh '''#!/usr/bin/env bash
                   set -euo pipefail
-                  chmod +x ci/deploy-leads-helm.sh
-                  ci/deploy-leads-helm.sh
+                  bash ci/resolve-leads-images.sh leads-images.args
                 '''
               }
             }
+            stash name: 'leads-images', includes: 'leads-images.args'
+            env.LEADS_IMAGES_RESOLVED = 'true'
+          }
+        }
+      }
+    }
+
+    stage('Deploy (Helm → leads namespace)') {
+      when { expression { params.DEPLOY_LEADS_NS && env.LEADS_IMAGES_RESOLVED == 'true' } }
+      agent { label 'oan-ci-deploy' }
+      steps {
+        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+          unstash 'leads-images'
+          withCredentials([
+            file(credentialsId: params.LEADS_KUBECONFIG_CRED, variable: 'KUBECONFIG'),
+            file(credentialsId: params.LEADS_VALUES_CRED, variable: 'LEADS_VALUES_FILE')
+          ]) {
+            sh '''#!/usr/bin/env bash
+              set -euo pipefail
+              bash ci/deploy-leads-helm.sh leads-images.args
+            '''
           }
         }
       }

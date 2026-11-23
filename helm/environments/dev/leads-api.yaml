@@ -1,6 +1,6 @@
 # Values for the leads-api chart (helm/leads-api) on the dev cluster: release `leads-api`,
 # namespace `leads`. Non-secret settings only. ci/deploy-leads-helm.sh passes this file first,
-# then the Jenkins secret-file credential LEADS_VALUES_CRED (default leads-values-dev), which
+# then the Jenkins secret-file credential LEADS_VALUES_CRED (default dev-leads-secret-values), which
 # holds the Elasticsearch host and every username/password
 # (template: helm/leads-api/ci/deploy-values.example.yaml).
 #
