@@ -1,0 +1,43 @@
+# Template for the Jenkins secret-file credential LEADS_VALUES_CRED (default leads-values-dev),
+# read by ci/deploy-leads-helm.sh. Copy it, fill it in and upload it to Jenkins as a
+# "Secret file". Never commit a filled-in copy. Placeholders only.
+#
+# The image tags/digests, telephony.enabled and the namespace come from the Jenkins job;
+# do not set them here.
+
+config:
+  SPRING_DATASOURCE_URL: jdbc:postgresql://<postgres-host>:5432/leads_db
+  ELASTICSEARCH_HOST: <elasticsearch-host>
+  # SPRING_REDIS_HOST: ""          # empty = the in-chart Redis
+
+secrets:
+  # Either an existing Secret in the namespace ...
+  existingSecret: ""
+  # ... or the chart creates one from these values.
+  values:
+    SPRING_DATASOURCE_USERNAME: <user>
+    SPRING_DATASOURCE_PASSWORD: <password>
+    ELASTICSEARCH_USERNAME: <user>
+    ELASTICSEARCH_PASSWORD: <password>
+
+telephony:
+  secret:
+    create: true
+    values:
+      DB_USER: <user>
+      DB_PASSWORD: <password>
+      ESL_PASSWORD: <password>
+  leadService:
+    # lead_db on the shared PostgreSQL (or set postgres.enabled: true for an in-chart one).
+    dbUrl: jdbc:postgresql://<postgres-host>:5432/lead_db
+  # postgres:
+  #   enabled: true
+  freeswitch:
+    # The SIP trunk's source CIDRs; every other caller is rejected.
+    sipTrunkCidrs: ["<cidr>"]
+    # Public IP of the node below (empty: auto-nat).
+    extIp: ""
+    # FreeSWITCH uses the node's network (SIP 5060, RTP 16384-32768). While the old
+    # Telephony-Service deploy is still running on the same cluster, pick a DIFFERENT node.
+    nodeSelector:
+      kubernetes.io/hostname: <node-name>
