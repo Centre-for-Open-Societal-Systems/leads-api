@@ -7,7 +7,8 @@
 #  Env in (set by the Jenkinsfile):
 #    AWS_ACCOUNT_ID, AWS_REGION, ECR_REPO, IMMUTABLE_TAG  the leads-api image this build pushed
 #    KUBECONFIG          kubeconfig of the target cluster (secret file)
-#    LEADS_VALUES_FILE   environment values incl. secrets (secret file; see
+#    LEADS_VALUES_FILE   secrets: Elasticsearch host + usernames/passwords, layered over
+#                        helm/environments/dev/leads-api.yaml (secret file; see
 #                        helm/leads-api/ci/deploy-values.example.yaml)
 #    TELEPHONY           true|false: install the telephony subchart
 #    TELEPHONY_TAG       optional ap-south-1 eoan/leads-api/* tag; empty = chart's pinned build
@@ -24,6 +25,7 @@ TELEPHONY="${TELEPHONY:-true}"
 TELEPHONY_TAG="${TELEPHONY_TAG:-}"
 
 CHART=helm/leads-api
+ENV_VALUES=helm/environments/dev/leads-api.yaml   # non-secret dev values, in Git
 RELEASE=leads-api
 HELM_VERSION=v3.16.4            # same as .github/workflows/helm-charts.yml
 TELEPHONY_REGION=ap-south-1
@@ -84,7 +86,7 @@ fi
 "$HELM" dependency build "$CHART"
 "$HELM" upgrade --install "$RELEASE" "$CHART" \
   --namespace "$NAMESPACE" --create-namespace \
-  -f "$LEADS_VALUES_FILE" "${args[@]}" \
+  -f "$ENV_VALUES" -f "$LEADS_VALUES_FILE" "${args[@]}" \
   --wait --atomic --timeout 10m --history-max 10
 
 "$HELM" status "$RELEASE" --namespace "$NAMESPACE"

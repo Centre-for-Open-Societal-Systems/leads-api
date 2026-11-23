@@ -1,0 +1,18 @@
+# Values for the leads-api chart (helm/leads-api) on the dev cluster: release `leads-api`,
+# namespace `leads`. Non-secret settings only. ci/deploy-leads-helm.sh passes this file first,
+# then the Jenkins secret-file credential LEADS_VALUES_CRED (default leads-values-dev), which
+# holds the Elasticsearch host and every username/password
+# (template: helm/leads-api/ci/deploy-values.example.yaml).
+#
+# Image tags/digests and telephony.enabled come from the Jenkins job, not from this file.
+
+config:
+  # leads_db on the shared frappe-common PostgreSQL of this cluster.
+  SPRING_DATASOURCE_URL: jdbc:postgresql://oan-frappe-common-db-postgresql-subchart.frappe-common.svc.cluster.local:5432/leads_db
+
+# Redis: the in-chart cache (chart default).
+
+telephony:
+  leadService:
+    # lead_db on the same shared PostgreSQL (used only when the job runs with TELEPHONY).
+    dbUrl: jdbc:postgresql://oan-frappe-common-db-postgresql-subchart.frappe-common.svc.cluster.local:5432/lead_db
