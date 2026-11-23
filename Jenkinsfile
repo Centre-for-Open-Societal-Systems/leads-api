@@ -12,6 +12,8 @@
 //               (GitOps: bump the oan-kustomize `staging` overlay; ArgoCD on node 41 syncs)
 //    other   -> build + push to the LEGACY ECR (leads-a2c, us-west-2) — previous behaviour,
 //               no deploy step.
+//  Opt-in, any env (DEPLOY_LEADS_NS=true, default false): after the above, also Helm-install
+//    helm/leads-api (leads-api + telephony) into namespace `leads` via ci/deploy-leads-helm.sh.
 //
 //  Tags:  <env>-<build>   immutable, pinned by oan-kustomize (staging uses a `staging-ati-`
 //                         prefix -> staging-ati-<build>, uniform with the other repos)
@@ -28,6 +30,18 @@ pipeline {
   parameters {
     string(name: 'DEPLOY_ENV', defaultValue: 'staging',
            description: 'Target env: staging (oan ECR + GitOps) or dev/main (legacy ECR, no deploy)')
+    // Opt-in Helm install of helm/leads-api (leads-api + telephony) into namespace `leads`.
+    // Off by default: existing jobs keep building and pushing exactly as before.
+    booleanParam(name: 'DEPLOY_LEADS_NS', defaultValue: false,
+           description: 'Also install helm/leads-api (leads-api + telephony) with Helm into namespace leads')
+    booleanParam(name: 'TELEPHONY', defaultValue: true,
+           description: 'Install telephony in the same release, in namespace leads (never a separate namespace)')
+    string(name: 'TELEPHONY_TAG', defaultValue: '',
+           description: 'Telephony image tag in ap-south-1 eoan/leads-api/* (e.g. 0.1.0-develop.24); empty = the build pinned in the chart')
+    string(name: 'LEADS_KUBECONFIG_CRED', defaultValue: 'leads-kubeconfig',
+           description: 'Jenkins secret-file credential: kubeconfig of the target cluster')
+    string(name: 'LEADS_VALUES_CRED', defaultValue: 'leads-values-dev',
+           description: 'Jenkins secret-file credential: environment values incl. secrets (see helm/leads-api/ci/deploy-values.example.yaml)')
   }
 
   options {
@@ -144,6 +158,39 @@ pipeline {
             ci/update-kustomize-ati.sh staging leads-api \
               "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMMUTABLE_TAG}"
           '''
+        }
+      }
+    }
+
+    // Opt-in (DEPLOY_LEADS_NS): install the image this build pushed, plus telephony, with
+    // the helm/leads-api chart into namespace `leads`. Runs after the existing push/GitOps
+    // stages and never changes them. A failure marks the build UNSTABLE, not green.
+    // Environment values and secrets come from the LEADS_VALUES_CRED secret file, never Git.
+    stage('Deploy (Helm → leads namespace)') {
+      when { expression { params.DEPLOY_LEADS_NS } }
+      steps {
+        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+          script {
+            def creds = [
+              string(credentialsId: 'AWS_ACCOUNT_ID', variable: 'AWS_ACCOUNT_ID'),
+              file(credentialsId: params.LEADS_KUBECONFIG_CRED, variable: 'KUBECONFIG'),
+              file(credentialsId: params.LEADS_VALUES_CRED, variable: 'LEADS_VALUES_FILE')
+            ]
+            // The legacy push authenticates with aws-credentials; staging uses the agent's identity.
+            if (env.IS_STAGING != 'true') {
+              creds << [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']
+            }
+            withCredentials(creds) {
+              withEnv(["TELEPHONY=${params.TELEPHONY}",
+                       "TELEPHONY_TAG=${params.TELEPHONY_TAG?.trim() ?: ''}"]) {
+                sh '''#!/usr/bin/env bash
+                  set -euo pipefail
+                  chmod +x ci/deploy-leads-helm.sh
+                  ci/deploy-leads-helm.sh
+                '''
+              }
+            }
+          }
         }
       }
     }
