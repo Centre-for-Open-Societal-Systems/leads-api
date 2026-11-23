@@ -202,7 +202,10 @@ pipeline {
     }
 
     stage('Deploy (Helm → leads namespace)') {
-      when { expression { env.DEPLOY_LEADS == 'true' && env.LEADS_IMAGES_RESOLVED == 'true' } }
+      when {
+        beforeAgent true   // decide first; do not take the deploy agent for a skipped stage
+        expression { env.DEPLOY_LEADS == 'true' && env.LEADS_IMAGES_RESOLVED == 'true' }
+      }
       agent { label 'oan-ci-deploy' }
       steps {
         catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
