@@ -15,7 +15,8 @@
 #              <tag> is TELEPHONY_TAG or, when empty, the build pinned in the chart. If missing,
 #              it is copied from the Telephony-Service push in ap-northeast-1
 #              (freeswitch-<image>:<build>).
-#  Copies use `docker buildx imagetools create` (registry to registry, same digest); a missing
+#  Present in ap-south-1: used as it is (source not read). Copies use `docker buildx imagetools
+#  create` (registry to registry, same digest, checked); a missing
 #  ap-south-1 repository is created with the eoan settings (immutable, scan on push, AES256).
 #
 #  Env in (set by Jenkins / the Jenkinsfile):
@@ -64,18 +65,14 @@ digest_of() { # <region> <repository> <tag>  -> digest; empty if missing; fails 
 }
 
 # <dst repo> <dst tag> <src region> <src repo> <src tag>  -> digest of dst in ap-south-1.
-# Copies src -> dst when dst is missing; fails if src is missing too, or if an existing dst
-# has a different digest from src.
+# dst present: used as it is (the eoan repositories are immutable, so the tag cannot have
+# moved) and the source is not read, so a pre-seeded image needs only ap-south-1 read access.
+# dst missing: copied from src; fails if src is missing too or the copy's digest differs.
 ensure_image() {
   local dst=$1 dtag=$2 sregion=$3 src=$4 stag=$5 d s
-  s=$(digest_of "$sregion" "$src" "$stag")
   d=$(digest_of "$DST_REGION" "$dst" "$dtag")
-  if [ -n "$d" ]; then
-    if [ -n "$s" ] && [ "$s" != "$d" ]; then
-      echo "$dst:$dtag in $DST_REGION is $d but $src:$stag in $sregion is $s" >&2; return 1
-    fi
-    echo "$d"; return 0
-  fi
+  if [ -n "$d" ]; then echo "$d"; return 0; fi
+  s=$(digest_of "$sregion" "$src" "$stag")
   [ -n "$s" ] || { echo "missing everywhere: $dst:$dtag in $DST_REGION and $src:$stag in $sregion" >&2; return 1; }
 
   echo "copying $sregion $src:$stag -> $DST_REGION $dst:$dtag" >&2
