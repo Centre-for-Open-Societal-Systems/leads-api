@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  Helm install of helm/leads-api (leads-api + telephony subchart) into one namespace.
+#  Helm install of helm/leads-api (leads-api + telephony subchart) into namespace `leads`.
+#  The namespace is fixed: telephony runs only in `leads`, in the same release as leads-api.
 #  Called by the Jenkinsfile stage 'Deploy (Helm → leads namespace)' (DEPLOY_LEADS_NS).
 #
 #  Env in (set by the Jenkinsfile):
@@ -8,7 +9,6 @@
 #    KUBECONFIG          kubeconfig of the target cluster (secret file)
 #    LEADS_VALUES_FILE   environment values incl. secrets (secret file; see
 #                        helm/leads-api/ci/deploy-values.example.yaml)
-#    LEADS_NAMESPACE     target namespace (default leads)
 #    TELEPHONY           true|false: install the telephony subchart
 #    TELEPHONY_TAG       optional ap-south-1 eoan/leads-api/* tag; empty = chart's pinned build
 #
@@ -19,7 +19,7 @@ set -euo pipefail
 
 : "${AWS_ACCOUNT_ID:?}" "${AWS_REGION:?}" "${ECR_REPO:?}" "${IMMUTABLE_TAG:?}"
 : "${KUBECONFIG:?}" "${LEADS_VALUES_FILE:?}"
-LEADS_NAMESPACE="${LEADS_NAMESPACE:-leads}"
+NAMESPACE=leads                 # fixed, not a parameter
 TELEPHONY="${TELEPHONY:-true}"
 TELEPHONY_TAG="${TELEPHONY_TAG:-}"
 
@@ -83,8 +83,8 @@ fi
 
 "$HELM" dependency build "$CHART"
 "$HELM" upgrade --install "$RELEASE" "$CHART" \
-  --namespace "$LEADS_NAMESPACE" --create-namespace \
+  --namespace "$NAMESPACE" --create-namespace \
   -f "$LEADS_VALUES_FILE" "${args[@]}" \
   --wait --atomic --timeout 10m --history-max 10
 
-"$HELM" status "$RELEASE" --namespace "$LEADS_NAMESPACE"
+"$HELM" status "$RELEASE" --namespace "$NAMESPACE"

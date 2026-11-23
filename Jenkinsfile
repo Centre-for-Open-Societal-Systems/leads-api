@@ -13,7 +13,7 @@
 //    other   -> build + push to the LEGACY ECR (leads-a2c, us-west-2) — previous behaviour,
 //               no deploy step.
 //  Opt-in, any env (DEPLOY_LEADS_NS=true, default false): after the above, also Helm-install
-//    helm/leads-api (leads-api + telephony) into LEADS_NAMESPACE via ci/deploy-leads-helm.sh.
+//    helm/leads-api (leads-api + telephony) into namespace `leads` via ci/deploy-leads-helm.sh.
 //
 //  Tags:  <env>-<build>   immutable, pinned by oan-kustomize (staging uses a `staging-ati-`
 //                         prefix -> staging-ati-<build>, uniform with the other repos)
@@ -30,14 +30,12 @@ pipeline {
   parameters {
     string(name: 'DEPLOY_ENV', defaultValue: 'staging',
            description: 'Target env: staging (oan ECR + GitOps) or dev/main (legacy ECR, no deploy)')
-    // Opt-in Helm install of helm/leads-api (leads-api + telephony) into LEADS_NAMESPACE.
+    // Opt-in Helm install of helm/leads-api (leads-api + telephony) into namespace `leads`.
     // Off by default: existing jobs keep building and pushing exactly as before.
     booleanParam(name: 'DEPLOY_LEADS_NS', defaultValue: false,
-           description: 'Also install helm/leads-api (leads-api + telephony) with Helm into LEADS_NAMESPACE')
-    string(name: 'LEADS_NAMESPACE', defaultValue: 'leads',
-           description: 'Namespace for the Helm install')
+           description: 'Also install helm/leads-api (leads-api + telephony) with Helm into namespace leads')
     booleanParam(name: 'TELEPHONY', defaultValue: true,
-           description: 'Install the telephony subchart in the same release')
+           description: 'Install telephony in the same release, in namespace leads (never a separate namespace)')
     string(name: 'TELEPHONY_TAG', defaultValue: '',
            description: 'Telephony image tag in ap-south-1 eoan/leads-api/* (e.g. 0.1.0-develop.24); empty = the build pinned in the chart')
     string(name: 'LEADS_KUBECONFIG_CRED', defaultValue: 'leads-kubeconfig',
@@ -165,7 +163,7 @@ pipeline {
     }
 
     // Opt-in (DEPLOY_LEADS_NS): install the image this build pushed, plus telephony, with
-    // the helm/leads-api chart into LEADS_NAMESPACE. Runs after the existing push/GitOps
+    // the helm/leads-api chart into namespace `leads`. Runs after the existing push/GitOps
     // stages and never changes them. A failure marks the build UNSTABLE, not green.
     // Environment values and secrets come from the LEADS_VALUES_CRED secret file, never Git.
     stage('Deploy (Helm → leads namespace)') {
@@ -183,8 +181,7 @@ pipeline {
               creds << [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']
             }
             withCredentials(creds) {
-              withEnv(["LEADS_NAMESPACE=${params.LEADS_NAMESPACE}",
-                       "TELEPHONY=${params.TELEPHONY}",
+              withEnv(["TELEPHONY=${params.TELEPHONY}",
                        "TELEPHONY_TAG=${params.TELEPHONY_TAG?.trim() ?: ''}"]) {
                 sh '''#!/usr/bin/env bash
                   set -euo pipefail
