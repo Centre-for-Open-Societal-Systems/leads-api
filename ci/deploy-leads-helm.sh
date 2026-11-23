@@ -2,34 +2,34 @@
 # =============================================================================
 #  Helm install of helm/leads-api (leads-api + telephony subchart) into namespace `leads`.
 #  The namespace is fixed: telephony runs only in `leads`, in the same release as leads-api.
-#  Called by the Jenkinsfile stage 'Deploy (Helm → leads namespace)' (DEPLOY_LEADS_NS).
+#  Runs on the DEPLOY agent (label oan-ci-deploy, the one that reaches the clusters), called by
+#  the Jenkinsfile stage 'Deploy (Helm → leads namespace)'. Needs no AWS access: the images
+#  were pinned by digest on the build agent (ci/resolve-leads-images.sh).
 #
+#  Args:  $1  file from ci/resolve-leads-images.sh (one Helm argument per line)
 #  Env in (set by the Jenkinsfile):
-#    AWS_ACCOUNT_ID, AWS_REGION, ECR_REPO, IMMUTABLE_TAG  the leads-api image this build pushed
-#    KUBECONFIG          kubeconfig of the target cluster (secret file)
+#    KUBECONFIG          the leads-deployer kubeconfig (credential dev-leads-deployer-kubeconfig;
+#                        oan-helm environments/dev/rbac/leads-deployer-rbac.yaml)
 #    LEADS_VALUES_FILE   secrets: Elasticsearch host + usernames/passwords, layered over
-#                        helm/environments/dev/leads-api.yaml (secret file; see
-#                        helm/leads-api/ci/deploy-values.example.yaml)
-#    TELEPHONY           true|false: install the telephony subchart
-#    TELEPHONY_TAG       optional ap-south-1 eoan/leads-api/* tag; empty = chart's pinned build
+#                        helm/environments/dev/leads-api.yaml (credential dev-leads-secret-values;
+#                        template helm/leads-api/ci/deploy-values.example.yaml)
 #
-#  Every image is pinned by digest, looked up in ECR. --wait --atomic: the build fails
-#  (and the release rolls back) unless the pods become ready.
+#  --wait --atomic: the build fails (and the release rolls back) unless the pods become ready.
+#  The namespace must exist (the deployer has no cluster-scoped rights): it is created by the
+#  RBAC file above, so there is no --create-namespace.
 # =============================================================================
 set -euo pipefail
 
-: "${AWS_ACCOUNT_ID:?}" "${AWS_REGION:?}" "${ECR_REPO:?}" "${IMMUTABLE_TAG:?}"
+args_file="${1:?usage: deploy-leads-helm.sh <args-file>}"
 : "${KUBECONFIG:?}" "${LEADS_VALUES_FILE:?}"
-NAMESPACE=leads                 # fixed, not a parameter
-TELEPHONY="${TELEPHONY:-true}"
-TELEPHONY_TAG="${TELEPHONY_TAG:-}"
+mapfile -t args < "$args_file"
+[ "${#args[@]}" -gt 0 ] || { echo "empty $args_file" >&2; exit 1; }
 
+NAMESPACE=leads                 # fixed, not a parameter
 CHART=helm/leads-api
 ENV_VALUES=helm/environments/dev/leads-api.yaml   # non-secret dev values, in Git
 RELEASE=leads-api
 HELM_VERSION=v3.16.4            # same as .github/workflows/helm-charts.yml
-TELEPHONY_REGION=ap-south-1
-TELEPHONY_REPO_PREFIX=eoan/leads-api
 
 # --- helm: the agent's if present, else a pinned download verified by its sha256 ---
 HELM=helm
@@ -49,43 +49,9 @@ if ! command -v helm >/dev/null 2>&1; then
 fi
 "$HELM" version --short
 
-digest_of() { # <region> <repository> <tag>
-  local d
-  d=$(aws ecr describe-images --region "$1" --repository-name "$2" \
-        --image-ids imageTag="$3" --query 'imageDetails[0].imageDigest' --output text)
-  [[ "$d" =~ ^sha256:[a-f0-9]{64}$ ]] || { echo "no image $2:$3 in $1" >&2; exit 1; }
-  echo "$d"
-}
-
-REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-LEADS_DIGEST=$(digest_of "$AWS_REGION" "$ECR_REPO" "$IMMUTABLE_TAG")
-args=(
-  --set-string "image.repository=${REGISTRY}/${ECR_REPO}"
-  --set-string "image.tag=${IMMUTABLE_TAG}"
-  --set-string "image.digest=${LEADS_DIGEST}"
-)
-echo "leads-api: ${REGISTRY}/${ECR_REPO}:${IMMUTABLE_TAG}@${LEADS_DIGEST}"
-
-if [ "$TELEPHONY" = "true" ]; then
-  args+=(--set telephony.enabled=true)
-  if [ -n "$TELEPHONY_TAG" ]; then
-    for pair in leadService:lead-service eventPublisher:event-publisher freeswitch:freeswitch; do
-      key=${pair%%:*}; image=${pair#*:}
-      d=$(digest_of "$TELEPHONY_REGION" "$TELEPHONY_REPO_PREFIX/$image" "$TELEPHONY_TAG")
-      args+=(--set-string "telephony.${key}.image.tag=${TELEPHONY_TAG}"
-             --set-string "telephony.${key}.image.digest=${d}")
-      echo "telephony ${image}: ${TELEPHONY_TAG}@${d}"
-    done
-  else
-    echo "telephony: the build pinned in the chart"
-  fi
-else
-  args+=(--set telephony.enabled=false)
-fi
-
 "$HELM" dependency build "$CHART"
 "$HELM" upgrade --install "$RELEASE" "$CHART" \
-  --namespace "$NAMESPACE" --create-namespace \
+  --namespace "$NAMESPACE" \
   -f "$ENV_VALUES" -f "$LEADS_VALUES_FILE" "${args[@]}" \
   --wait --atomic --timeout 10m --history-max 10
 

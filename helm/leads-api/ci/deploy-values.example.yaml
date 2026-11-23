@@ -1,4 +1,4 @@
-# Template for the Jenkins secret-file credential LEADS_VALUES_CRED (default leads-values-dev),
+# Template for the Jenkins secret-file credential LEADS_VALUES_CRED (default dev-leads-secret-values),
 # read by ci/deploy-leads-helm.sh. Copy it, fill it in and upload it to Jenkins as a
 # "Secret file". Never commit a filled-in copy. Placeholders only.
 #
