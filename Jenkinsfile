@@ -192,8 +192,12 @@ pipeline {
             // Telephony images: the Telephony-Service identity (reads ap-northeast-1, writes
             // ap-south-1 eoan/leads-api/*), under its own names so the leads-api lookup above
             // keeps this agent's identity. Missing telephony images are copied, never rebuilt.
-            creds << [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials',
-                      accessKeyVariable: 'TEL_AWS_ACCESS_KEY_ID', secretKeyVariable: 'TEL_AWS_SECRET_ACCESS_KEY']
+            // Bound only when telephony is installed: with TELEPHONY unticked the script never
+            // reads it, so a job that cannot see aws-credentials can still deploy leads-api.
+            if (params.TELEPHONY) {
+              creds << [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials',
+                        accessKeyVariable: 'TEL_AWS_ACCESS_KEY_ID', secretKeyVariable: 'TEL_AWS_SECRET_ACCESS_KEY']
+            }
             withCredentials(creds) {
               withEnv(["TELEPHONY=${params.TELEPHONY}",
                        "TELEPHONY_TAG=${params.TELEPHONY_TAG?.trim() ?: ''}"]) {
