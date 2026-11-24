@@ -49,8 +49,8 @@ pipeline {
     // AWS credential here only to copy an image that is still missing from ap-northeast-1.
     string(name: 'TELEPHONY_AWS_CRED', defaultValue: '',
            description: 'Optional Jenkins AWS credential (e.g. aws-credentials) for copying a telephony image missing from ap-south-1 out of ap-northeast-1; empty = this agent\'s identity, ap-south-1 only')
-    string(name: 'LEADS_KUBECONFIG_CRED', defaultValue: 'dev-leads-deployer-kubeconfig',
-           description: 'Jenkins secret-file credential: leads-deployer kubeconfig (oan-helm environments/dev/rbac/leads-deployer-rbac.yaml)')
+    string(name: 'LEADS_KUBECONFIG_CRED', defaultValue: 'oan-dev-kubeconfig',
+           description: 'Jenkins secret-file credential: oan_dev deployer kubeconfig (jenkins-a2c-deployer, admin in leads via oan-helm environments/dev/values/oan-cluster-access.yaml)')
     string(name: 'LEADS_VALUES_CRED', defaultValue: 'dev-leads-secret-values',
            description: 'Jenkins secret-file credential: Elasticsearch host + usernames/passwords (template helm/leads-api/ci/deploy-values.example.yaml)')
   }
@@ -226,7 +226,7 @@ pipeline {
     // Two steps, as in the registries (oan-helm docs/release/environments.md §4):
     //   1. on this build agent (AWS identity): pin every image by digest;
     //   2. on the oan-ci-deploy agent (reaches the clusters): helm upgrade with the
-    //      leads-deployer kubeconfig. Secrets come from LEADS_VALUES_CRED, never Git.
+    //      oan-dev-kubeconfig (admin in leads). Secrets come from LEADS_VALUES_CRED, never Git.
     stage('Resolve images (leads namespace)') {
       when { expression { env.DEPLOY_LEADS == 'true' } }
       steps {
