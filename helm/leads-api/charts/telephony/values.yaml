@@ -26,6 +26,17 @@ secret:
   # values file). false: `name` must already exist in the namespace.
   create: false
   values: {}
+  # With create: true, optional: fill DB_PASSWORD (when not in `values`) at install time
+  # from a Secret in another namespace, e.g. {namespace: frappe-common,
+  # name: oan-frappe-common-db, key: password}. Helm `lookup`: the deployer needs `get` on it.
+  dbPasswordFrom:
+    namespace: ""
+    name: ""
+    key: password
+  # With create: true and no ESL_PASSWORD in `values`: generate one on first install and
+  # keep it on upgrades (read back from this Secret). Only FreeSWITCH and the event
+  # publisher in this release use it.
+  generateEslPassword: false
 
 # Where lead-service posts leads. Empty url: the Leads API Service of this release,
 # http://<service>.<namespace>.svc.cluster.local:<leadsApiPort>/leads/v1/initiate.

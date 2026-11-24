@@ -74,3 +74,29 @@ fullname (<release> when the release name contains "leads-api", otherwise <relea
 {{- fail "telephony: set leadService.dbUrl when postgres.enabled is false" -}}
 {{- end -}}
 {{- end -}}
+
+{{/* The telephony Secret's data (secret.create): `secret.values`, then at install time
+- DB_PASSWORD, when not given, copied from secret.dbPasswordFrom (a Secret in another namespace,
+  e.g. the shared PostgreSQL's), so no one keeps a copy of it;
+- ESL_PASSWORD, when not given, kept from this chart's existing Secret, else generated once.
+Both use Helm `lookup` (the deployer needs `get` on those Secrets); `helm template` cannot read
+the cluster, so set the values directly there. Returns YAML; used by the Secret and the
+pods' checksum annotations. */}}
+{{- define "telephony.secretData" -}}
+{{- $v := deepCopy (.Values.secret.values | default dict) -}}
+{{- $from := .Values.secret.dbPasswordFrom | default dict -}}
+{{- if and $from.name (not (get $v "DB_PASSWORD")) -}}
+{{- $src := lookup "v1" "Secret" ($from.namespace | default .Release.Namespace) $from.name -}}
+{{- $raw := dig "data" ($from.key | default "password") "" $src -}}
+{{- if not $raw -}}
+{{- fail (printf "telephony.secret.dbPasswordFrom: cannot read key %q of Secret %s/%s (missing, or the deployer has no get on it)" ($from.key | default "password") ($from.namespace | default .Release.Namespace) $from.name) -}}
+{{- end -}}
+{{- $_ := set $v "DB_PASSWORD" (b64dec $raw) -}}
+{{- end -}}
+{{- if and .Values.secret.generateEslPassword (not (get $v "ESL_PASSWORD")) -}}
+{{- $own := lookup "v1" "Secret" .Release.Namespace .Values.secret.name -}}
+{{- $kept := dig "data" "ESL_PASSWORD" "" $own -}}
+{{- $_ := set $v "ESL_PASSWORD" (ternary (b64dec $kept) (randAlphaNum 32) (ne $kept "")) -}}
+{{- end -}}
+{{- toYaml $v -}}
+{{- end -}}
