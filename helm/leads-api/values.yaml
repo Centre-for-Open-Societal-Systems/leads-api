@@ -7,7 +7,8 @@
 replicaCount: 2
 
 image:
-  # OAN ECR (ap-south-1). Switch to eoan/leads-api/leads-api once that repository exists.
+  # OAN ECR (ap-south-1). The Jenkins install into namespace leads overrides it with
+  # eoan/leads-api/leads-api:0.1.0-develop.<build> (ci/resolve-leads-images.sh).
   repository: 379220350808.dkr.ecr.ap-south-1.amazonaws.com/oan/leads-api
   # Required, no default (OAN naming standard, oan-helm docs/release/naming-standard.md):
   # an immutable tag pinned by digest, "<version>-<branch>.<BUILD_NUMBER>@sha256:<digest>",

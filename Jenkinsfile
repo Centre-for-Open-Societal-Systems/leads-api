@@ -14,8 +14,10 @@
 //               no deploy step.
 //  leads namespace: every build of the `dev` branch (other branches: DEPLOY_LEADS_NS=true), after
 //    the above, also Helm-installs helm/leads-api (leads-api + telephony unless TELEPHONY is
-//    unticked) into namespace `leads`: digests on this agent
-//    (ci/resolve-leads-images.sh), Helm on oan-ci-deploy (ci/deploy-leads-helm.sh).
+//    unticked) into namespace `leads`, every image from ap-south-1: the build's leads-api image is
+//    copied to eoan/leads-api/leads-api:0.1.0-develop.<build> (same digest; the legacy push is
+//    left as it is), digests on this agent (ci/resolve-leads-images.sh), Helm on oan-ci-deploy
+//    (ci/deploy-leads-helm.sh).
 //
 //  Tags:  <env>-<build>   immutable, pinned by oan-kustomize (staging uses a `staging-ati-`
 //                         prefix -> staging-ati-<build>, uniform with the other repos)
@@ -181,10 +183,17 @@ pipeline {
         catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
           script {
             def creds = [string(credentialsId: 'AWS_ACCOUNT_ID', variable: 'AWS_ACCOUNT_ID')]
-            // The legacy push authenticates with aws-credentials; staging uses the agent's identity.
+            // leads-api is read (and, from the legacy us-west-2 push, copied to ap-south-1
+            // eoan/leads-api/leads-api, same digest) with the identity that pushed it: the legacy
+            // push authenticates with aws-credentials; staging uses the agent's identity.
             if (env.IS_STAGING != 'true') {
               creds << [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']
             }
+            // Telephony images: the Telephony-Service identity (reads ap-northeast-1, writes
+            // ap-south-1 eoan/leads-api/*), under its own names so the leads-api lookup above
+            // keeps this agent's identity. Missing telephony images are copied, never rebuilt.
+            creds << [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials',
+                      accessKeyVariable: 'TEL_AWS_ACCESS_KEY_ID', secretKeyVariable: 'TEL_AWS_SECRET_ACCESS_KEY']
             withCredentials(creds) {
               withEnv(["TELEPHONY=${params.TELEPHONY}",
                        "TELEPHONY_TAG=${params.TELEPHONY_TAG?.trim() ?: ''}"]) {
@@ -202,7 +211,10 @@ pipeline {
     }
 
     stage('Deploy (Helm → leads namespace)') {
-      when { expression { env.DEPLOY_LEADS == 'true' && env.LEADS_IMAGES_RESOLVED == 'true' } }
+      when {
+        beforeAgent true   // decide first; do not take the deploy agent for a skipped stage
+        expression { env.DEPLOY_LEADS == 'true' && env.LEADS_IMAGES_RESOLVED == 'true' }
+      }
       agent { label 'oan-ci-deploy' }
       steps {
         catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {

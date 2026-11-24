@@ -44,9 +44,11 @@ moving tags and nothing in the chart updates itself:
   (`latest`, `*-latest`, `develop`, `staging`, ...) are rejected at render time.
 - A new image reaches a cluster only through a reviewed change to that value and a Jenkins
   build running `helm upgrade`. There is no Keel and no restart CronJob, and `pullPolicy` is `IfNotPresent`.
-- Repository: `oan/leads-api` (ap-south-1) today, e.g.
+- Repository (ap-south-1): the chart default is `oan/leads-api`, e.g.
   `staging-ati-7@sha256:e3fba3f392b3add9f9c91ba87528878ff5b8f1c7a8b3e2298c5405a2c1db9121`.
-  Switch to `eoan/leads-api/leads-api` once it exists in ECR.
+  The Jenkins install into namespace `leads` sets it per build: on dev, the build's legacy push
+  (`leads-a2c`, us-west-2) is copied to `eoan/leads-api/leads-api:0.1.0-develop.<build>` (same
+  digest, `ci/resolve-leads-images.sh`), so the release pulls every image from ap-south-1.
 
 ## CI
 
