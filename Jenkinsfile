@@ -43,6 +43,11 @@ pipeline {
            description: 'Install telephony in the same release, in namespace leads (never a separate namespace)')
     string(name: 'TELEPHONY_TAG', defaultValue: '',
            description: 'Telephony image tag in ap-south-1 eoan/leads-api/* (e.g. 0.1.0-develop.24); empty = the build pinned in the chart')
+    // Telephony-Service pushes every build to ap-south-1 eoan/leads-api/* itself, so the images
+    // are normally read there with this agent's AWS identity and no extra credential. Name an
+    // AWS credential here only to copy an image that is still missing from ap-northeast-1.
+    string(name: 'TELEPHONY_AWS_CRED', defaultValue: '',
+           description: 'Optional Jenkins AWS credential (e.g. aws-credentials) for copying a telephony image missing from ap-south-1 out of ap-northeast-1; empty = this agent\'s identity, ap-south-1 only')
     string(name: 'LEADS_KUBECONFIG_CRED', defaultValue: 'dev-leads-deployer-kubeconfig',
            description: 'Jenkins secret-file credential: leads-deployer kubeconfig (oan-helm environments/dev/rbac/leads-deployer-rbac.yaml)')
     string(name: 'LEADS_VALUES_CRED', defaultValue: 'dev-leads-secret-values',
@@ -189,11 +194,15 @@ pipeline {
             if (env.IS_STAGING != 'true') {
               creds << [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']
             }
-            // Telephony images: the Telephony-Service identity (reads ap-northeast-1, writes
-            // ap-south-1 eoan/leads-api/*), under its own names so the leads-api lookup above
-            // keeps this agent's identity. Missing telephony images are copied, never rebuilt.
-            creds << [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials',
-                      accessKeyVariable: 'TEL_AWS_ACCESS_KEY_ID', secretKeyVariable: 'TEL_AWS_SECRET_ACCESS_KEY']
+            // Telephony images are read in ap-south-1 eoan/leads-api/* (pushed there by
+            // Telephony-Service) with the identity in use above. Only when TELEPHONY_AWS_CRED names
+            // a credential is it bound, under its own names, to copy a missing image from
+            // ap-northeast-1. Missing telephony images are copied, never rebuilt.
+            def telCred = params.TELEPHONY_AWS_CRED?.trim()
+            if (params.TELEPHONY && telCred) {
+              creds << [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: telCred,
+                        accessKeyVariable: 'TEL_AWS_ACCESS_KEY_ID', secretKeyVariable: 'TEL_AWS_SECRET_ACCESS_KEY']
+            }
             withCredentials(creds) {
               withEnv(["TELEPHONY=${params.TELEPHONY}",
                        "TELEPHONY_TAG=${params.TELEPHONY_TAG?.trim() ?: ''}"]) {
