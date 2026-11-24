@@ -26,8 +26,10 @@
 #    TELEPHONY           true|false: install the telephony subchart
 #    TELEPHONY_TAG       optional, e.g. 0.1.0-develop.24; empty = the build pinned in the chart
 #    TEL_AWS_ACCESS_KEY_ID / TEL_AWS_SECRET_ACCESS_KEY
-#                        the Telephony-Service identity (aws-credentials), used only for the
-#                        telephony images; leads-api uses the identity that pushed it
+#                        optional (Jenkins TELEPHONY_AWS_CRED): an identity used only for the
+#                        telephony images, needed only to copy one missing from ap-south-1 out
+#                        of ap-northeast-1. Unset = the identity in use (ap-south-1 read).
+#                        leads-api always uses the identity that pushed it
 #  Out: the file named by $1, one Helm argument per line, for ci/deploy-leads-helm.sh.
 # =============================================================================
 set -euo pipefail
@@ -120,10 +122,16 @@ if [ "$TELEPHONY" != "true" ]; then
   exit 0
 fi
 
-# --- telephony: everything below runs as the Telephony-Service identity ---
-: "${TEL_AWS_ACCESS_KEY_ID:?}" "${TEL_AWS_SECRET_ACCESS_KEY:?}"
-export AWS_ACCESS_KEY_ID="$TEL_AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$TEL_AWS_SECRET_ACCESS_KEY"
-unset AWS_SESSION_TOKEN
+# --- telephony: read in ap-south-1 (Telephony-Service pushes there) with the identity in use;
+#     TEL_AWS_* (Jenkins TELEPHONY_AWS_CRED), when given, is used instead, e.g. to copy a
+#     missing image from ap-northeast-1 ---
+if [ -n "${TEL_AWS_ACCESS_KEY_ID:-}" ] && [ -n "${TEL_AWS_SECRET_ACCESS_KEY:-}" ]; then
+  export AWS_ACCESS_KEY_ID="$TEL_AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$TEL_AWS_SECRET_ACCESS_KEY"
+  unset AWS_SESSION_TOKEN
+  echo "telephony: using the TELEPHONY_AWS_CRED identity"
+else
+  echo "telephony: using this agent's identity (images expected in ${DST_REGION} ${DST_PREFIX}/*)"
+fi
 
 chart_tag() { # <image> -> the tag pinned in the chart
   awk -v img="$DST_PREFIX/$1" '
