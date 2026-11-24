@@ -8,15 +8,15 @@
 #
 #  Args:  $1  file from ci/resolve-leads-images.sh (one Helm argument per line)
 #  Env in (set by the Jenkinsfile):
-#    KUBECONFIG          the leads-deployer kubeconfig (credential dev-leads-deployer-kubeconfig;
-#                        oan-helm environments/dev/rbac/leads-deployer-rbac.yaml)
+#    KUBECONFIG          the oan_dev deployer kubeconfig (credential oan-dev-kubeconfig: jenkins-a2c-deployer,
+#                        admin in leads via oan-helm environments/dev/values/oan-cluster-access.yaml)
 #    LEADS_VALUES_FILE   secrets: Elasticsearch host + usernames/passwords, layered over
 #                        helm/environments/dev/leads-api.yaml (credential dev-leads-secret-values;
 #                        template helm/leads-api/ci/deploy-values.example.yaml)
 #
 #  --wait --atomic: the build fails (and the release rolls back) unless the pods become ready.
-#  The namespace must exist (the deployer has no cluster-scoped rights): it is created by the
-#  RBAC file above, so there is no --create-namespace.
+#  The namespace must exist (the deployer has no cluster-scoped rights): a cluster admin creates
+#  it once (oan-helm PR 267), so there is no --create-namespace.
 # =============================================================================
 set -euo pipefail
 

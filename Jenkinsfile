@@ -12,12 +12,13 @@
 //               (GitOps: bump the oan-kustomize `staging` overlay; ArgoCD on node 41 syncs)
 //    other   -> build + push to the LEGACY ECR (leads-a2c, us-west-2) — previous behaviour,
 //               no deploy step.
-//  leads namespace: every build of the `dev` branch (other branches: DEPLOY_LEADS_NS=true), after
-//    the above, also Helm-installs helm/leads-api (leads-api + telephony unless TELEPHONY is
-//    unticked) into namespace `leads`, every image from ap-south-1: the build's leads-api image is
-//    copied to eoan/leads-api/leads-api:0.1.0-develop.<build> (same digest; the legacy push is
-//    left as it is), digests on this agent (ci/resolve-leads-images.sh), Helm on oan-ci-deploy
-//    (ci/deploy-leads-helm.sh).
+//  dev branch -> leads namespace ONLY, whatever DEPLOY_ENV says: build + push to ap-south-1
+//    eoan/leads-api/leads-api:0.1.0-develop.<build>, then Helm-install helm/leads-api (leads-api +
+//    telephony unless TELEPHONY is unticked) into namespace `leads` (leads node 10.0.1.131). No
+//    staging ECR push, no oan-kustomize/ArgoCD change, no legacy push.
+//  Other branches with DEPLOY_LEADS_NS=true: the env's push/GitOps above, then the same install;
+//    a legacy us-west-2 image is copied to eoan/leads-api/leads-api (same digest). Digests on this
+//    agent (ci/resolve-leads-images.sh), Helm on oan-ci-deploy (ci/deploy-leads-helm.sh).
 //
 //  Tags:  <env>-<build>   immutable, pinned by oan-kustomize (staging uses a `staging-ati-`
 //                         prefix -> staging-ati-<build>, uniform with the other repos)
@@ -48,8 +49,8 @@ pipeline {
     // AWS credential here only to copy an image that is still missing from ap-northeast-1.
     string(name: 'TELEPHONY_AWS_CRED', defaultValue: '',
            description: 'Optional Jenkins AWS credential (e.g. aws-credentials) for copying a telephony image missing from ap-south-1 out of ap-northeast-1; empty = this agent\'s identity, ap-south-1 only')
-    string(name: 'LEADS_KUBECONFIG_CRED', defaultValue: 'dev-leads-deployer-kubeconfig',
-           description: 'Jenkins secret-file credential: leads-deployer kubeconfig (oan-helm environments/dev/rbac/leads-deployer-rbac.yaml)')
+    string(name: 'LEADS_KUBECONFIG_CRED', defaultValue: 'oan-dev-kubeconfig',
+           description: 'Jenkins secret-file credential: oan_dev deployer kubeconfig (jenkins-a2c-deployer, admin in leads via oan-helm environments/dev/values/oan-cluster-access.yaml)')
     string(name: 'LEADS_VALUES_CRED', defaultValue: 'dev-leads-secret-values',
            description: 'Jenkins secret-file credential: Elasticsearch host + usernames/passwords (template helm/leads-api/ci/deploy-values.example.yaml)')
   }
@@ -67,29 +68,42 @@ pipeline {
         script {
           // Effective env: the DEPLOY_ENV parameter (how these standalone jobs are wired),
           // falling back to BRANCH_NAME for a multibranch job, else 'dev'.
-          def envName = (params.DEPLOY_ENV?.trim()) ?: (env.BRANCH_NAME?.trim()) ?: 'dev'
+          // The dev branch goes to the leads namespace ONLY: never the staging ECR/GitOps, whatever
+          // DEPLOY_ENV says (its default is 'staging', which a multibranch dev job would inherit).
+          env.LEADS_ONLY = (env.BRANCH_NAME == 'dev') ? 'true' : 'false'
+          def envName = (env.LEADS_ONLY == 'true') ? 'dev'
+                      : ((params.DEPLOY_ENV?.trim()) ?: (env.BRANCH_NAME?.trim()) ?: 'dev')
           env.DEPLOY_TARGET = envName
           env.IS_STAGING = (envName == 'staging') ? 'true' : 'false'
           // leads namespace install: automatic for the dev branch (pushes and merges included;
           // pull-request builds are PR-<n>, never dev), on request for any other branch.
-          env.DEPLOY_LEADS = (env.BRANCH_NAME == 'dev' || params.DEPLOY_LEADS_NS) ? 'true' : 'false'
+          env.DEPLOY_LEADS = (env.LEADS_ONLY == 'true' || params.DEPLOY_LEADS_NS) ? 'true' : 'false'
 
-          // staging -> the cluster's ECR (ap-south-1, oan/*). Everything else keeps the
-          // legacy target so existing dev/main builds are unchanged.
-          if (env.IS_STAGING == 'true') {
-            env.AWS_REGION = 'ap-south-1'
-            env.ECR_REPO   = 'oan/leads-api'
+          if (env.LEADS_ONLY == 'true') {
+            // dev -> straight to the leads install's registry, ap-south-1 eoan/leads-api/leads-api
+            // (immutable repo: one tag, no moving alias), the OAN naming standard.
+            env.AWS_REGION    = 'ap-south-1'
+            env.ECR_REPO      = 'eoan/leads-api/leads-api'
+            env.IMMUTABLE_TAG = "0.1.0-develop.${env.BUILD_NUMBER}"
+            env.MOVING_TAG    = ''
           } else {
-            env.AWS_REGION = 'us-west-2'
-            env.ECR_REPO   = 'leads-a2c'
+            // staging -> the cluster's ECR (ap-south-1, oan/*). Everything else keeps the
+            // legacy target so existing main builds are unchanged.
+            if (env.IS_STAGING == 'true') {
+              env.AWS_REGION = 'ap-south-1'
+              env.ECR_REPO   = 'oan/leads-api'
+            } else {
+              env.AWS_REGION = 'us-west-2'
+              env.ECR_REPO   = 'leads-a2c'
+            }
+            // staging (the ATI/GitOps path) publishes under a `staging-ati-` prefix so the
+            // immutable tag reads staging-ati-<build>, uniform with the other repos. Non-staging
+            // (legacy main) keeps its <env>- tag.
+            def tagPrefix     = (envName == 'staging') ? 'staging-ati' : envName
+            env.IMMUTABLE_TAG = "${tagPrefix}-${env.BUILD_NUMBER}"
+            env.MOVING_TAG    = "${tagPrefix}-latest"
           }
-          // staging (the ATI/GitOps path) publishes under a `staging-ati-` prefix so the
-          // immutable tag reads staging-ati-<build>, uniform with the other repos. Non-staging
-          // (legacy dev/main) keeps its <env>- tag.
-          def tagPrefix     = (envName == 'staging') ? 'staging-ati' : envName
-          env.IMMUTABLE_TAG = "${tagPrefix}-${env.BUILD_NUMBER}"
-          env.MOVING_TAG    = "${tagPrefix}-latest"
-          echo "env=${envName} staging=${env.IS_STAGING} region=${env.AWS_REGION} repo=${env.ECR_REPO} tag=${env.IMMUTABLE_TAG} leads-ns=${env.DEPLOY_LEADS} telephony=${params.TELEPHONY}"
+          echo "env=${envName} leads-only=${env.LEADS_ONLY} staging=${env.IS_STAGING} region=${env.AWS_REGION} repo=${env.ECR_REPO} tag=${env.IMMUTABLE_TAG} leads-ns=${env.DEPLOY_LEADS} telephony=${params.TELEPHONY}"
         }
       }
     }
@@ -127,8 +141,39 @@ pipeline {
     // image into the local store, so it IS removed afterwards (docker rmi). AWS_ACCOUNT_ID
     // only builds the registry URL (same account as staging); the push auth comes from the
     // aws-credentials binding.
+    // dev branch -> ap-south-1 eoan/leads-api/leads-api only (agent identity, as for staging).
+    // The repository is created with the eoan settings if missing, as resolve-leads-images.sh does.
+    stage('Build & Push (dev → eoan ECR, leads only)') {
+      when { expression { env.LEADS_ONLY == 'true' } }
+      steps {
+        withCredentials([string(credentialsId: 'AWS_ACCOUNT_ID', variable: 'AWS_ACCOUNT_ID')]) {
+          sh '''#!/usr/bin/env bash
+            set -euo pipefail
+            REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+            IMAGE_URI="${REGISTRY}/${ECR_REPO}"
+
+            aws ecr describe-repositories --region "${AWS_REGION}" --repository-names "${ECR_REPO}" >/dev/null 2>&1 \
+              || aws ecr create-repository --region "${AWS_REGION}" --repository-name "${ECR_REPO}" \
+                   --image-tag-mutability IMMUTABLE \
+                   --image-scanning-configuration scanOnPush=true \
+                   --encryption-configuration encryptionType=AES256 \
+                   --tags Key=owner,Value=leads-api Key=naming,Value=eoan-standard >/dev/null
+
+            aws ecr get-login-password --region "${AWS_REGION}" \
+              | docker login --username AWS --password-stdin "${REGISTRY}"
+
+            DOCKER_BUILDKIT=1 docker buildx build \
+              --tag "${IMAGE_URI}:${IMMUTABLE_TAG}" \
+              --file Dockerfile \
+              --push .
+            echo "Pushed ${IMAGE_URI}:${IMMUTABLE_TAG}"
+          '''
+        }
+      }
+    }
+
     stage('Build & Push (legacy → leads-a2c)') {
-      when { expression { env.IS_STAGING != 'true' } }
+      when { expression { env.IS_STAGING != 'true' && env.LEADS_ONLY != 'true' } }
       steps {
         withCredentials([
           string(credentialsId: 'AWS_ACCOUNT_ID', variable: 'AWS_ACCOUNT_ID'),
@@ -181,7 +226,7 @@ pipeline {
     // Two steps, as in the registries (oan-helm docs/release/environments.md §4):
     //   1. on this build agent (AWS identity): pin every image by digest;
     //   2. on the oan-ci-deploy agent (reaches the clusters): helm upgrade with the
-    //      leads-deployer kubeconfig. Secrets come from LEADS_VALUES_CRED, never Git.
+    //      oan-dev-kubeconfig (admin in leads). Secrets come from LEADS_VALUES_CRED, never Git.
     stage('Resolve images (leads namespace)') {
       when { expression { env.DEPLOY_LEADS == 'true' } }
       steps {
@@ -191,8 +236,8 @@ pipeline {
             // leads-api is read (and, from the legacy us-west-2 push, copied to ap-south-1
             // eoan/leads-api/leads-api, same digest) with the identity that pushed it: the legacy
             // push authenticates with aws-credentials; staging uses the agent's identity.
-            if (env.IS_STAGING != 'true') {
-              creds << [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']
+            if (env.IS_STAGING != 'true' && env.LEADS_ONLY != 'true') {
+              creds <<[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']
             }
             // Telephony images are read in ap-south-1 eoan/leads-api/* (pushed there by
             // Telephony-Service) with the identity in use above. Only when TELEPHONY_AWS_CRED names
