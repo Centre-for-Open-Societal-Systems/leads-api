@@ -10,9 +10,11 @@
 #  Env in (set by the Jenkinsfile):
 #    KUBECONFIG          the oan_dev deployer kubeconfig (credential oan-dev-kubeconfig: jenkins-a2c-deployer,
 #                        admin in leads via oan-helm environments/dev/values/oan-cluster-access.yaml)
-#    LEADS_VALUES_FILE   secrets: Elasticsearch host + usernames/passwords, layered over
-#                        helm/environments/dev/leads-api.yaml (credential dev-leads-secret-values;
-#                        template helm/leads-api/ci/deploy-values.example.yaml)
+#    LEADS_VALUES_FILE   optional: overrides layered over helm/environments/dev/leads-api.yaml
+#                        (Jenkins credential LEADS_VALUES_CRED, e.g. the real Elasticsearch
+#                        host/credentials or telephony; template helm/leads-api/ci/deploy-values.example.yaml).
+#                        Unset: the Git dev values alone; the chart reads the PostgreSQL password
+#                        from frappe-common/oan-frappe-common-db at install time.
 #
 #  --wait --atomic: the build fails (and the release rolls back) unless the pods become ready.
 #  The namespace must exist (the deployer has no cluster-scoped rights): a cluster admin creates
@@ -21,7 +23,7 @@
 set -euo pipefail
 
 args_file="${1:?usage: deploy-leads-helm.sh <args-file>}"
-: "${KUBECONFIG:?}" "${LEADS_VALUES_FILE:?}"
+: "${KUBECONFIG:?}"
 mapfile -t args < "$args_file"
 [ "${#args[@]}" -gt 0 ] || { echo "empty $args_file" >&2; exit 1; }
 
@@ -30,6 +32,9 @@ CHART=helm/leads-api
 ENV_VALUES=helm/environments/dev/leads-api.yaml   # non-secret dev values, in Git
 RELEASE=leads-api
 HELM_VERSION=v3.16.4            # same as .github/workflows/helm-charts.yml
+
+values=(-f "$ENV_VALUES")
+[ -n "${LEADS_VALUES_FILE:-}" ] && values+=(-f "$LEADS_VALUES_FILE")
 
 # --- helm: the agent's if present, else a pinned download verified by its sha256 ---
 HELM=helm
@@ -52,7 +57,7 @@ fi
 "$HELM" dependency build "$CHART"
 "$HELM" upgrade --install "$RELEASE" "$CHART" \
   --namespace "$NAMESPACE" \
-  -f "$ENV_VALUES" -f "$LEADS_VALUES_FILE" "${args[@]}" \
+  "${values[@]}" "${args[@]}" \
   --wait --atomic --timeout 10m --history-max 10
 
 "$HELM" status "$RELEASE" --namespace "$NAMESPACE"
