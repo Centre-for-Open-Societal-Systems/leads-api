@@ -18,7 +18,7 @@ app.kubernetes.io/instance: {{ .root.Release.Name }}
 app.kubernetes.io/component: {{ .component }}
 {{- end -}}
 
-{{/* Takes dict registry, image. <registry>/<repository>@<digest>, or :<tag> without a digest. */}}
+{{/* Takes dict registry, image. <registry>/<repository>:<tag> whenever a tag is set (the build number, e.g. 0.1.0-develop.23; the digest, if given, is only checked, the ECR tags are immutable), else @<digest>. */}}
 {{- define "telephony.image" -}}
 {{- $repository := required "telephony: enabled component requires image.repository" .image.repository -}}
 {{- if .registry -}}
@@ -28,9 +28,13 @@ app.kubernetes.io/component: {{ .component }}
 {{- if not (regexMatch "^sha256:[a-f0-9]{64}$" .image.digest) -}}
 {{- fail "telephony: image.digest must be sha256 followed by 64 lowercase hex characters" -}}
 {{- end -}}
-{{- printf "%s@%s" $repository .image.digest -}}
+{{- if .image.tag -}}
+{{- printf "%s:%s" $repository (first (splitList "@" (toString .image.tag))) -}}
 {{- else -}}
-{{- printf "%s:%s" $repository (required "telephony: enabled component requires image.tag or image.digest" .image.tag) -}}
+{{- printf "%s@%s" $repository .image.digest -}}
+{{- end -}}
+{{- else -}}
+{{- printf "%s:%s" $repository (first (splitList "@" (toString (required "telephony: enabled component requires image.tag or image.digest" .image.tag)))) -}}
 {{- end -}}
 {{- end -}}
 

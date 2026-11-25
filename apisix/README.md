@@ -18,6 +18,10 @@ API has no inbound auth, so the rate limit is what protects `initiate`.
 
 ## Install
 
+Jenkins installs it as release `leads-gateway` on every leads deploy (stage 'Deploy (Helm → leads
+namespace)', `ci/deploy-leads-gateway.sh`, after the leads-api release), as a2c does with `a2c-gateway`.
+By hand:
+
 Install into the namespace of the leads-api release (`leads`), in the cluster that runs APISIX.
 oan-helm's `gateway-common.yaml` sets `redis.host` (the gateway's Redis for the counters):
 
