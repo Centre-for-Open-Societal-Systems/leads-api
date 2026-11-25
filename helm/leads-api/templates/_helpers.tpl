@@ -47,7 +47,8 @@ app.kubernetes.io/component: api
 
 {{/*
 Image reference. OAN naming standard: no moving tags; the deploy pins
-tag "<version>@sha256:<digest>" (or image.digest). image.tag has no default, so the
+tag "<version>@sha256:<digest>" (or image.tag + image.digest, rendered <repo>:<tag>@<digest>:
+the tag shows the build number, the digest is what is pulled). image.tag has no default, so the
 Jenkins job / environment values must set it.
 */}}
 {{- define "leads-api.image" -}}
@@ -68,7 +69,11 @@ Jenkins job / environment values must set it.
 {{- if not (regexMatch "^sha256:[a-f0-9]{64}$" $digest) -}}
 {{- fail "image.digest must be sha256 followed by 64 lowercase hex characters" -}}
 {{- end -}}
+{{- if $bareTag -}}
+{{- printf "%s:%s@%s" $repo $bareTag $digest -}}
+{{- else -}}
 {{- printf "%s@%s" $repo $digest -}}
+{{- end -}}
 {{- else -}}
 {{- printf "%s:%s" $repo $tag -}}
 {{- end -}}
