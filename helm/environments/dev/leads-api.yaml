@@ -44,3 +44,22 @@ telephony:
   leadService:
     # lead_db on the same shared PostgreSQL (used only when the job runs with TELEPHONY).
     dbUrl: jdbc:postgresql://oan-frappe-common-db-postgresql-subchart.frappe-common.svc.cluster.local:5432/lead_db
+
+# Small dev footprint, like the old release on this cluster (oan-leads-api: 40m API, 5m redis):
+# the leads node is short on CPU, and the chart defaults (2 x 250m + 100m redis) left pods
+# Pending with "Insufficient cpu". Requests only; the limits stay, so the JVM can still burst.
+replicaCount: 1
+resources:
+  requests:
+    cpu: 50m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 2Gi
+# One replica: a minAvailable 1 budget would block node drains.
+podDisruptionBudget:
+  enabled: false
+redis:
+  resources:
+    requests: { memory: 32Mi, cpu: 5m }
+    limits: { memory: 128Mi, cpu: 200m }
