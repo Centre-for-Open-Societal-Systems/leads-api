@@ -18,7 +18,8 @@
 //    staging ECR push, no oan-kustomize/ArgoCD change, no legacy push.
 //  Other branches with DEPLOY_LEADS_NS=true: the env's push/GitOps above, then the same install;
 //    a legacy us-west-2 image is copied to eoan/leads-api/leads-api (same digest). Digests on this
-//    agent (ci/resolve-leads-images.sh), Helm on oan-ci-deploy (ci/deploy-leads-helm.sh).
+//    agent (ci/resolve-leads-images.sh), Helm on oan-ci-deploy (ci/deploy-leads-helm.sh), then the
+//    public route as release leads-gateway (ci/deploy-leads-gateway.sh, chart apisix/k8s).
 //
 //  Tags:  <env>-<build>   immutable, pinned by oan-kustomize (staging uses a `staging-ati-`
 //                         prefix -> staging-ati-<build>, uniform with the other repos)
@@ -294,6 +295,16 @@ pipeline {
                 bash ci/deploy-leads-helm.sh leads-images.args
               '''
             }
+          }
+        }
+        // The public route (POST /leads/v1/initiate only) as release leads-gateway, like a2c-gateway.
+        // Its own catchError: a gateway failure marks the build UNSTABLE but never undoes the app deploy.
+        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+          withCredentials([file(credentialsId: params.LEADS_KUBECONFIG_CRED, variable: 'KUBECONFIG')]) {
+            sh '''#!/usr/bin/env bash
+              set -euo pipefail
+              bash ci/deploy-leads-gateway.sh
+            '''
           }
         }
       }
