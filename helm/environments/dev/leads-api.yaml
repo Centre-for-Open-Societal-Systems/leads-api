@@ -46,7 +46,8 @@ telephony:
     dbUrl: jdbc:postgresql://oan-frappe-common-db-postgresql-subchart.frappe-common.svc.cluster.local:5432/lead_db
   freeswitch:
     # FreeSWITCH uses the node's network (SIP 5060 UDP/TCP, RTP UDP 16384-32768): pinned to the
-    # leads node, EC2 `services-development` (i-09ad0ea954f499105, 10.0.1.131).
+    # leads node, EC2 `services-development` (i-09ad0ea954f499105, 10.0.1.131). ci/deploy-leads-helm.sh
+    # replaces this name with the real one, read from a running pod on 10.0.1.131 (FREESWITCH_NODE_IP).
     nodeSelector:
       kubernetes.io/hostname: ip-10-0-1-131
     # Public IP of that node, the address the SIP trunk sends calls to. Not an Elastic IP: it
