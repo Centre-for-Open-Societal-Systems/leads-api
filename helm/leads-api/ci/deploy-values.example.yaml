@@ -6,8 +6,10 @@
 # do not set them here. Non-secret dev settings (DB URLs) are already in
 # helm/environments/dev/leads-api.yaml, which is applied first; this file overrides it.
 #
-# Minimal first run (leads-api only, TELEPHONY unticked) needs just:
-#   config.ELASTICSEARCH_HOST and secrets.values.* (4 keys).
+# On dev this file is OPTIONAL: helm/environments/dev/leads-api.yaml already sets the DB URLs
+# and users, reads both PostgreSQL passwords from frappe-common/oan-frappe-common-db at install
+# time and generates the telephony ESL password. Add only what you want to override here,
+# e.g. a real Elasticsearch host/credentials.
 
 config:
   SPRING_DATASOURCE_URL: jdbc:postgresql://<postgres-host>:5432/leads_db

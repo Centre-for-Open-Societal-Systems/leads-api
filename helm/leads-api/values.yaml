@@ -128,6 +128,13 @@ secrets:
   # Must contain the keys listed under `values` below. Changing it does NOT roll the pods;
   # run `kubectl rollout restart deploy/<release>` afterwards.
   existingSecret: ""
+  # Optional: fill SPRING_DATASOURCE_PASSWORD (when not given below) at install time from a
+  # Secret in another namespace, e.g. {namespace: frappe-common, name: oan-frappe-common-db,
+  # key: password}. Uses Helm `lookup`, so the deployer needs `get` on that one Secret.
+  datasourcePasswordFrom:
+    namespace: ""
+    name: ""
+    key: password
   # Chart-managed Secret (existingSecret empty). Supply these from a secret values file,
   # never from Git. The install stops if a required key is empty:
   #   always: SPRING_DATASOURCE_USERNAME, SPRING_DATASOURCE_PASSWORD,

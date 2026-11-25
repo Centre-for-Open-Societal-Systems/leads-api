@@ -51,8 +51,8 @@ pipeline {
            description: 'Optional Jenkins AWS credential (e.g. aws-credentials) for copying a telephony image missing from ap-south-1 out of ap-northeast-1; empty = this agent\'s identity, ap-south-1 only')
     string(name: 'LEADS_KUBECONFIG_CRED', defaultValue: 'oan-dev-kubeconfig',
            description: 'Jenkins secret-file credential: oan_dev deployer kubeconfig (jenkins-a2c-deployer, admin in leads via oan-helm environments/dev/values/oan-cluster-access.yaml)')
-    string(name: 'LEADS_VALUES_CRED', defaultValue: 'dev-leads-secret-values',
-           description: 'Jenkins secret-file credential: Elasticsearch host + usernames/passwords (template helm/leads-api/ci/deploy-values.example.yaml)')
+    string(name: 'LEADS_VALUES_CRED', defaultValue: '',
+           description: 'Optional Jenkins secret-file credential overriding helm/environments/dev/leads-api.yaml (e.g. real Elasticsearch host/credentials, telephony; template helm/leads-api/ci/deploy-values.example.yaml). Empty or missing = Git dev values; the DB password is read from frappe-common/oan-frappe-common-db')
   }
 
   options {
@@ -273,14 +273,27 @@ pipeline {
       steps {
         catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
           unstash 'leads-images'
-          withCredentials([
-            file(credentialsId: params.LEADS_KUBECONFIG_CRED, variable: 'KUBECONFIG'),
-            file(credentialsId: params.LEADS_VALUES_CRED, variable: 'LEADS_VALUES_FILE')
-          ]) {
-            sh '''#!/usr/bin/env bash
-              set -euo pipefail
-              bash ci/deploy-leads-helm.sh leads-images.args
-            '''
+          script {
+            def creds = [file(credentialsId: params.LEADS_KUBECONFIG_CRED, variable: 'KUBECONFIG')]
+            // Optional overrides file. The dev values in Git plus the database's own Secret
+            // (read by the chart at install time) are enough on their own, so a missing
+            // credential is skipped, not an error.
+            def valuesCred = params.LEADS_VALUES_CRED?.trim()
+            if (valuesCred) {
+              try {
+                withCredentials([file(credentialsId: valuesCred, variable: 'PROBE')]) { }
+                creds << file(credentialsId: valuesCred, variable: 'LEADS_VALUES_FILE')
+                echo "values: Git dev values + credential ${valuesCred}"
+              } catch (err) {
+                echo "values: credential ${valuesCred} not found; using the Git dev values and the database Secret only"
+              }
+            }
+            withCredentials(creds) {
+              sh '''#!/usr/bin/env bash
+                set -euo pipefail
+                bash ci/deploy-leads-helm.sh leads-images.args
+              '''
+            }
           }
         }
       }
