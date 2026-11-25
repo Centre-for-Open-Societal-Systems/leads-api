@@ -16,7 +16,8 @@
 #                        Unset: the Git dev values alone; the chart reads the PostgreSQL password
 #                        from frappe-common/oan-frappe-common-db at install time.
 #
-#  --wait --atomic: the build fails (and the release rolls back) unless the pods become ready.
+#  --wait --atomic: the build fails (and the release rolls back to the last good revision, so the
+#  running leads-api stays) unless the pods become ready.
 #  The namespace must exist (the deployer has no cluster-scoped rights): a cluster admin creates
 #  it once (oan-helm PR 267), so there is no --create-namespace.
 # =============================================================================
@@ -54,10 +55,33 @@ if ! command -v helm >/dev/null 2>&1; then
 fi
 "$HELM" version --short
 
+# --- FreeSWITCH node: named from the cluster, not guessed ---
+# FreeSWITCH runs on the network of the node whose private IP is FREESWITCH_NODE_IP (the public
+# IP of that node is telephony.freeswitch.extIp in $ENV_VALUES). The deployer may not list nodes
+# (no cluster-scoped rights), but it can read pods in leads: a running pod on that IP carries the
+# node's name in spec.nodeName. Found: it overrides the nodeSelector of $ENV_VALUES. Not found
+# (no pod on that node yet): the nodeSelector of $ENV_VALUES is used as it is.
+FREESWITCH_NODE_IP="${FREESWITCH_NODE_IP:-10.0.1.131}"
+if grep -qx 'telephony.enabled=true' "$args_file"; then
+  node=""
+  if command -v kubectl >/dev/null 2>&1; then
+    node=$(kubectl -n "$NAMESPACE" get pods --field-selector=status.phase=Running \
+      -o jsonpath='{range .items[*]}{.status.hostIP}{" "}{.spec.nodeName}{"\n"}{end}' 2>/dev/null \
+      | awk -v ip="$FREESWITCH_NODE_IP" '$1 == ip { print $2; exit }' || true)
+  fi
+  if [ -n "$node" ]; then
+    echo "FreeSWITCH node: ${node} (${FREESWITCH_NODE_IP}, from a running pod in ${NAMESPACE})"
+    args+=(--set-string "telephony.freeswitch.nodeSelector.kubernetes\.io/hostname=${node}")
+  else
+    echo "FreeSWITCH node: no running pod in ${NAMESPACE} on ${FREESWITCH_NODE_IP}; using the nodeSelector of ${ENV_VALUES}" >&2
+  fi
+fi
+
 "$HELM" dependency build "$CHART"
+# 15m: the first telephony install pulls three new images (FreeSWITCH is the large one).
 "$HELM" upgrade --install "$RELEASE" "$CHART" \
   --namespace "$NAMESPACE" \
   "${values[@]}" "${args[@]}" \
-  --wait --atomic --timeout 10m --history-max 10
+  --wait --atomic --timeout 15m --history-max 10
 
 "$HELM" status "$RELEASE" --namespace "$NAMESPACE"
