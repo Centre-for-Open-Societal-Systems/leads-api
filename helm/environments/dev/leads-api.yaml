@@ -50,9 +50,9 @@ telephony:
     # replaces this name with the real one, read from a running pod on 10.0.1.131 (FREESWITCH_NODE_IP).
     nodeSelector:
       kubernetes.io/hostname: ip-10-0-1-131
-    # Public IP of that node, the address the SIP trunk sends calls to. Not an Elastic IP: it
-    # changes if the instance is stopped and started, and this value with it.
-    extIp: 13.234.239.132
+    # Public IP of that node, the address the SIP trunk sends calls to: Elastic IP
+    # services-development-eip (eipalloc-06201cd926d6fefd5), fixed across stop/start.
+    extIp: 13.207.227.230
     # The SIP trunk's signalling ranges (Twilio Elastic SIP Trunking), the same list the old
     # Tokyo proxy allows on 5060 (security group Freeswitch-EC2-proxy-sg). Calls from anywhere
     # else are refused.
