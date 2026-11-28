@@ -60,6 +60,13 @@ jobs:
           grep -q -- "--requirepass" db.yaml
           ! grep -qE "keel.sh|rollout restart" off.yaml on.yaml db.yaml
 
+      - name: "Staging values (QA): no pull secret, no telephony, leads_api login on leads_db"
+        run: |
+          helm template leads-api "$CHART" -n leads -f helm/environments/staging/leads-api.yaml --set-string image.tag=staging-ati-1 --set telephony.enabled=false --set-string secrets.values.SPRING_DATASOURCE_PASSWORD=ci > stg.yaml
+          grep -q "leads_db" stg.yaml
+          grep -q "SPRING_DATASOURCE_USERNAME: \"leads_api\"" stg.yaml
+          ! grep -qE "imagePullSecrets|leads-api-ecr|telephony" stg.yaml
+
       - name: Telephony without its required values must fail
         run: |
           ! helm template leads-api "$CHART" -f "$CHART/ci/default-values.yaml" --set telephony.enabled=true >/dev/null 2>&1
@@ -70,3 +77,5 @@ jobs:
           helm template leads-gateway "$GATEWAY" -n leads -f helm/environments/dev/oan-leads-gateway.yaml --set redis.host=redis.example > gw.yaml
           grep -q "/leads/v1/initiate" gw.yaml
           test "$(grep -c '^      - /' gw.yaml)" -eq 1
+          helm template leads-gateway "$GATEWAY" -n leads -f helm/environments/staging/oan-leads-gateway.yaml --set redis.host=redis.example > gw-stg.yaml
+          grep -q "leads-api.qa.oanstaging.com" gw-stg.yaml

@@ -1,0 +1,65 @@
+# Values for the leads-api chart (helm/leads-api) on the QA cluster (qa.oanstaging.com), the
+# staging environment: release `leads-api`, namespace `leads`, installed by the Jenkins stage
+# 'Deploy (Helm → leads namespace)' on builds of the `staging` branch
+# (ci/deploy-leads-helm.sh with LEADS_ENV=staging, kubeconfig oan-qa-kubeconfig =
+# jenkins-qa-deployer, oan-helm environments/qa/values/oan-cluster-access.yaml). No secrets here.
+#
+# Set at install, not here: image (oan/leads-api:staging-ati-<build>, the image this build
+# pushed, ci/resolve-leads-images.sh) and telephony.enabled (off on staging, see below).
+#
+# Needs on QA (cluster admin, oan-helm environments/qa/values): `leads` in frappe-common.allowFrom
+# (oan-namespace-guard.yaml), leads_db in appDatabases (oan-frappe-common.yaml) and its login Secret
+# in readSecret.extraNames (oan-cluster-access.yaml).
+
+config:
+  # leads_db on the shared frappe-common PostgreSQL of the QA cluster.
+  SPRING_DATASOURCE_URL: jdbc:postgresql://oan-frappe-common-db-postgresql-subchart.frappe-common.svc.cluster.local:5432/leads_db
+  # No Elasticsearch on QA yet: a placeholder host, as on dev, so the app starts (search and
+  # indexing calls fail until a real host is set).
+  ELASTICSEARCH_HOST: elasticsearch-pending
+
+secrets:
+  values:
+    # leads_db and its owner leads_api (LOGIN only, not the postgres superuser) are created by
+    # frappe-common `appDatabases` (oan-helm environments/qa/values/oan-frappe-common.yaml).
+    SPRING_DATASOURCE_USERNAME: leads_api
+    # Placeholders matching the placeholder host above; not real credentials.
+    ELASTICSEARCH_USERNAME: elastic
+    ELASTICSEARCH_PASSWORD: pending
+  # The leads_api password, read at install time from the login Secret frappe-common made for it
+  # (jenkins-qa-deployer may get it: oan-helm environments/qa/values/oan-cluster-access.yaml
+  # readSecret.extraNames), so no one keeps a copy.
+  datasourcePasswordFrom:
+    namespace: frappe-common
+    name: oan-frappe-common-db-app-leads-db
+    key: password
+
+# No pull secret on QA: the node pulls from ECR with its IAM role (kubelet
+# ecr-credential-provider), as a2c and grievance do there.
+ecrPullSecret:
+  enabled: false
+
+# Telephony stays off on staging (the Jenkinsfile installs it only from dev): FreeSWITCH needs
+# the node's network (hostNetwork), which Pod Security `baseline` of namespace leads on QA
+# refuses, and the SIP trunk (Twilio) points at the dev node. To turn it on later: leads
+# podSecurity privileged in oan-helm QA namespace-guard, the QA node's SG open to the trunk on
+# 5060 + RTP, a trunk origination URI to the QA IP, and a telephony block like the dev one here.
+telephony:
+  enabled: false
+  imagePullSecrets: []
+
+# Small footprint on the shared QA node, like dev.
+replicaCount: 1
+resources:
+  requests:
+    cpu: 50m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 2Gi
+podDisruptionBudget:
+  enabled: false
+redis:
+  resources:
+    requests: { memory: 32Mi, cpu: 5m }
+    limits: { memory: 128Mi, cpu: 200m }

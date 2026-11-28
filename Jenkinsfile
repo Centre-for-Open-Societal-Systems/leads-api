@@ -16,6 +16,9 @@
 //    eoan/leads-api/leads-api:0.1.0-develop.<build>, then Helm-install helm/leads-api (leads-api +
 //    telephony unless TELEPHONY is unticked) into namespace `leads` (leads node 10.0.1.131). No
 //    staging ECR push, no oan-kustomize/ArgoCD change, no legacy push.
+//  staging branch -> as staging above, then the same Helm install (leads-api + leads-gateway, no
+//    telephony) on the QA cluster qa.oanstaging.com, namespace leads, with oan-qa-kubeconfig and
+//    helm/environments/staging/*: the a2c staging layout. The ArgoCD/oan-kustomize bump is unchanged.
 //  Other branches with DEPLOY_LEADS_NS=true: the env's push/GitOps above, then the same install;
 //    a legacy us-west-2 image is copied to eoan/leads-api/leads-api (same digest). Digests on this
 //    agent (ci/resolve-leads-images.sh), Helm on oan-ci-deploy (ci/deploy-leads-helm.sh), then the
@@ -76,9 +79,18 @@ pipeline {
                       : ((params.DEPLOY_ENV?.trim()) ?: (env.BRANCH_NAME?.trim()) ?: 'dev')
           env.DEPLOY_TARGET = envName
           env.IS_STAGING = (envName == 'staging') ? 'true' : 'false'
+          // The staging branch also installs the chart on the QA cluster. Multibranch jobs set
+          // BRANCH_NAME; the standalone "Pipeline from SCM" job only has GIT_BRANCH (origin/staging).
+          def branch = (env.BRANCH_NAME?.trim()) ?: ((env.GIT_BRANCH ?: '').replaceFirst('^origin/', ''))
+          env.STAGING_QA = (env.IS_STAGING == 'true' && branch == 'staging') ? 'true' : 'false'
+          env.LEADS_ENV  = (env.STAGING_QA == 'true') ? 'staging' : 'dev'
+          env.LEADS_KUBECONFIG = (env.STAGING_QA == 'true') ? 'oan-qa-kubeconfig' : params.LEADS_KUBECONFIG_CRED
+          // No telephony on QA: Pod Security baseline in leads there refuses FreeSWITCH's
+          // hostNetwork, and the SIP trunk points at the dev node (helm/environments/staging/leads-api.yaml).
+          env.TELEPHONY_ON = (env.STAGING_QA == 'true') ? 'false' : (params.TELEPHONY ? 'true' : 'false')
           // leads namespace install: automatic for the dev branch (pushes and merges included;
           // pull-request builds are PR-<n>, never dev), on request for any other branch.
-          env.DEPLOY_LEADS = (env.LEADS_ONLY == 'true' || params.DEPLOY_LEADS_NS) ? 'true' : 'false'
+          env.DEPLOY_LEADS = (env.LEADS_ONLY == 'true' || env.STAGING_QA == 'true' || params.DEPLOY_LEADS_NS) ? 'true' : 'false'
 
           if (env.LEADS_ONLY == 'true') {
             // dev -> straight to the leads install's registry, ap-south-1 eoan/leads-api/leads-api
@@ -104,7 +116,7 @@ pipeline {
             env.IMMUTABLE_TAG = "${tagPrefix}-${env.BUILD_NUMBER}"
             env.MOVING_TAG    = "${tagPrefix}-latest"
           }
-          echo "env=${envName} leads-only=${env.LEADS_ONLY} staging=${env.IS_STAGING} region=${env.AWS_REGION} repo=${env.ECR_REPO} tag=${env.IMMUTABLE_TAG} leads-ns=${env.DEPLOY_LEADS} telephony=${params.TELEPHONY}"
+          echo "env=${envName} leads-only=${env.LEADS_ONLY} staging=${env.IS_STAGING} region=${env.AWS_REGION} repo=${env.ECR_REPO} tag=${env.IMMUTABLE_TAG} leads-ns=${env.DEPLOY_LEADS} leads-env=${env.LEADS_ENV} telephony=${env.TELEPHONY_ON}"
         }
       }
     }
@@ -245,12 +257,12 @@ pipeline {
             // a credential is it bound, under its own names, to copy a missing image from
             // ap-northeast-1. Missing telephony images are copied, never rebuilt.
             def telCred = params.TELEPHONY_AWS_CRED?.trim()
-            if (params.TELEPHONY && telCred) {
+            if (env.TELEPHONY_ON == 'true' && telCred) {
               creds << [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: telCred,
                         accessKeyVariable: 'TEL_AWS_ACCESS_KEY_ID', secretKeyVariable: 'TEL_AWS_SECRET_ACCESS_KEY']
             }
             withCredentials(creds) {
-              withEnv(["TELEPHONY=${params.TELEPHONY}",
+              withEnv(["TELEPHONY=${env.TELEPHONY_ON}",
                        "TELEPHONY_TAG=${params.TELEPHONY_TAG?.trim() ?: ''}"]) {
                 sh '''#!/usr/bin/env bash
                   set -euo pipefail
@@ -275,11 +287,12 @@ pipeline {
         catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
           unstash 'leads-images'
           script {
-            def creds = [file(credentialsId: params.LEADS_KUBECONFIG_CRED, variable: 'KUBECONFIG')]
+            def creds = [file(credentialsId: env.LEADS_KUBECONFIG, variable: 'KUBECONFIG')]
             // Optional overrides file. The dev values in Git plus the database's own Secret
             // (read by the chart at install time) are enough on their own, so a missing
             // credential is skipped, not an error.
-            def valuesCred = params.LEADS_VALUES_CRED?.trim()
+            // The overrides file is a dev one: never layered over the staging values.
+            def valuesCred = (env.LEADS_ENV == 'dev') ? params.LEADS_VALUES_CRED?.trim() : ''
             if (valuesCred) {
               try {
                 withCredentials([file(credentialsId: valuesCred, variable: 'PROBE')]) { }
@@ -300,7 +313,7 @@ pipeline {
         // The public route (POST /leads/v1/initiate only) as release leads-gateway, like a2c-gateway.
         // Its own catchError: a gateway failure marks the build UNSTABLE but never undoes the app deploy.
         catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-          withCredentials([file(credentialsId: params.LEADS_KUBECONFIG_CRED, variable: 'KUBECONFIG')]) {
+          withCredentials([file(credentialsId: env.LEADS_KUBECONFIG, variable: 'KUBECONFIG')]) {
             sh '''#!/usr/bin/env bash
               set -euo pipefail
               bash ci/deploy-leads-gateway.sh
