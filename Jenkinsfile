@@ -12,7 +12,7 @@
 //               (GitOps: bump the oan-kustomize `staging` overlay; ArgoCD on node 41 syncs)
 //    other   -> build + push to the LEGACY ECR (leads-a2c, us-west-2) — previous behaviour,
 //               no deploy step.
-//  dev branch -> leads namespace ONLY, whatever DEPLOY_ENV says: build + push to ap-south-1
+//  develop (formerly dev) branch -> leads namespace ONLY, whatever DEPLOY_ENV says: build + push to ap-south-1
 //    eoan/leads-api/leads-api:0.1.0-develop.<build>, then Helm-install helm/leads-api (leads-api +
 //    telephony unless TELEPHONY is unticked) into namespace `leads` (leads node 10.0.1.131). No
 //    staging ECR push, no oan-kustomize/ArgoCD change, no legacy push.
@@ -74,7 +74,8 @@ pipeline {
           // falling back to BRANCH_NAME for a multibranch job, else 'dev'.
           // The dev branch goes to the leads namespace ONLY: never the staging ECR/GitOps, whatever
           // DEPLOY_ENV says (its default is 'staging', which a multibranch dev job would inherit).
-          env.LEADS_ONLY = (env.BRANCH_NAME == 'dev') ? 'true' : 'false'
+          // The branch was renamed dev -> develop; accept both so the leads install keeps working.
+          env.LEADS_ONLY = (['develop', 'dev'].contains(env.BRANCH_NAME)) ? 'true' : 'false'
           def envName = (env.LEADS_ONLY == 'true') ? 'dev'
                       : ((params.DEPLOY_ENV?.trim()) ?: (env.BRANCH_NAME?.trim()) ?: 'dev')
           env.DEPLOY_TARGET = envName
@@ -88,8 +89,8 @@ pipeline {
           // No telephony on QA: Pod Security baseline in leads there refuses FreeSWITCH's
           // hostNetwork, and the SIP trunk points at the dev node (helm/environments/staging/leads-api.yaml).
           env.TELEPHONY_ON = (env.STAGING_QA == 'true') ? 'false' : (params.TELEPHONY ? 'true' : 'false')
-          // leads namespace install: automatic for the dev branch (pushes and merges included;
-          // pull-request builds are PR-<n>, never dev), on request for any other branch.
+          // leads namespace install: automatic for the develop branch (pushes and merges included;
+          // pull-request builds are PR-<n>, never develop), on request for any other branch.
           env.DEPLOY_LEADS = (env.LEADS_ONLY == 'true' || env.STAGING_QA == 'true' || params.DEPLOY_LEADS_NS) ? 'true' : 'false'
 
           if (env.LEADS_ONLY == 'true') {
@@ -97,7 +98,11 @@ pipeline {
             // (immutable repo: one tag, no moving alias), the OAN naming standard.
             env.AWS_REGION    = 'ap-south-1'
             env.ECR_REPO      = 'eoan/leads-api/leads-api'
-            env.IMMUTABLE_TAG = "0.1.0-develop.${env.BUILD_NUMBER}"
+            // The short commit keeps the tag unique when the job's build numbers restart (the dev ->
+            // develop rename made a new job from #1 while 0.1.0-develop.3..15 already exist).
+            def sha = env.GIT_COMMIT ?: ''
+            sha = (sha.length() >= 7) ? sha.substring(0, 7) : sha
+            env.IMMUTABLE_TAG = sha ? "0.1.0-develop.${env.BUILD_NUMBER}-${sha}" : "0.1.0-develop.${env.BUILD_NUMBER}"
             env.MOVING_TAG    = ''
           } else {
             // staging -> the cluster's ECR (ap-south-1, oan/*). Everything else keeps the
