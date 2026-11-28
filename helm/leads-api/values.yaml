@@ -192,6 +192,19 @@ externalDb:
     ip: ""
     port: 9200
 
+# ----------------------------------------------------------
+# Optional init container: create the databases on the shared PostgreSQL when they are
+# missing (a new cluster), with the app's login from the Secret above. Off by default.
+# ----------------------------------------------------------
+dbInit:
+  enabled: false
+  image: postgres:16-alpine
+  # The PostgreSQL host and port of config.SPRING_DATASOURCE_URL.
+  host: ""
+  port: 5432
+  # leads_db for leads-api; add lead_db when telephony uses the same server.
+  databases: [leads_db]
+
 autoscaling:
   enabled: false
   minReplicas: 2

@@ -1,0 +1,29 @@
+# Values for the oan-leads-gateway chart (leads-api/apisix/k8s) on the QA cluster
+# (qa.oanstaging.com), the staging environment. Release `leads-gateway`, namespace `leads`,
+# installed by ci/deploy-leads-gateway.sh on builds of the `staging` branch. APISIX and its
+# Ingress Controller run in namespace api6-gateway on the same node. See apisix/README.md.
+#
+# Set at install, not here: redis.host (the APISIX release's Redis, looked up by the script).
+
+ingressClassName: apisix
+
+global:
+  baseDomain: qa.oanstaging.com
+
+hosts:
+  - leads-api.{{ .Values.global.baseDomain }}
+
+# No `tls`: on QA APISIX terminates TLS for every *.qa.oanstaging.com host with one wildcard
+# (oan-helm environments/qa/values/oan-apisix-gateway.yaml).
+
+web:
+  serviceName: leads-api
+  port: 80
+
+# 5 requests per minute per client IP, as on dev and the Kong rule on prod.
+initiate:
+  rateLimit:
+    count: 5
+    timeWindow: 60
+
+corsOriginRegexes: []

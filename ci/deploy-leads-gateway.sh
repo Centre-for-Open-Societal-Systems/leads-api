@@ -11,7 +11,7 @@
 #  event-publisher) is in-cluster only and has no route here.
 #  Manage these routes with this chart only, never also with `adc sync`.
 #
-#  Env in:  KUBECONFIG (credential oan-dev-kubeconfig, admin in leads)
+#  Env in:  KUBECONFIG (dev: oan-dev-kubeconfig; staging: oan-qa-kubeconfig), LEADS_ENV (dev|staging)
 #  Optional: GATEWAY_RELEASE, GATEWAY_APISIX_NAMESPACE, GATEWAY_VALUES, HELM
 # =============================================================================
 set -euo pipefail
@@ -22,7 +22,7 @@ NAMESPACE=leads
 RELEASE="${GATEWAY_RELEASE:-leads-gateway}"
 APISIX_NS="${GATEWAY_APISIX_NAMESPACE:-api6-gateway}"
 CHART=apisix/k8s
-VALUES="${GATEWAY_VALUES:-helm/environments/dev/oan-leads-gateway.yaml}"
+VALUES="${GATEWAY_VALUES:-helm/environments/${LEADS_ENV:-dev}/oan-leads-gateway.yaml}"
 
 # helm: as given, else the copy ci/deploy-leads-helm.sh downloaded, else the agent's.
 if [ -z "${HELM:-}" ]; then

@@ -8,7 +8,8 @@
 #
 #  Args:  $1  file from ci/resolve-leads-images.sh (one Helm argument per line)
 #  Env in (set by the Jenkinsfile):
-#    KUBECONFIG          the oan_dev deployer kubeconfig (credential oan-dev-kubeconfig: jenkins-a2c-deployer,
+#    LEADS_ENV           dev (default) or staging: helm/environments/<env>/leads-api.yaml
+#    KUBECONFIG          staging: oan-qa-kubeconfig (jenkins-qa-deployer on QA). dev: the oan_dev deployer kubeconfig (credential oan-dev-kubeconfig: jenkins-a2c-deployer,
 #                        admin in leads via oan-helm environments/dev/values/oan-cluster-access.yaml)
 #    LEADS_VALUES_FILE   optional: overrides layered over helm/environments/dev/leads-api.yaml
 #                        (Jenkins credential LEADS_VALUES_CRED, e.g. the real Elasticsearch
@@ -30,7 +31,11 @@ mapfile -t args < "$args_file"
 
 NAMESPACE=leads                 # fixed, not a parameter
 CHART=helm/leads-api
-ENV_VALUES=helm/environments/dev/leads-api.yaml   # non-secret dev values, in Git
+# LEADS_ENV picks the non-secret values in Git: dev (the dev branch, dev cluster) or staging
+# (the staging branch, QA cluster qa.oanstaging.com).
+LEADS_ENV="${LEADS_ENV:-dev}"
+case "$LEADS_ENV" in dev|staging) ;; *) echo "LEADS_ENV must be dev or staging, got $LEADS_ENV" >&2; exit 1 ;; esac
+ENV_VALUES="helm/environments/${LEADS_ENV}/leads-api.yaml"
 RELEASE=leads-api
 HELM_VERSION=v3.16.4            # same as .github/workflows/helm-charts.yml
 
